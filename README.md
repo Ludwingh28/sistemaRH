@@ -34,10 +34,8 @@ npm run dev
 
 ## Despliegue
 
-Windows Server + Nginx: **`deploy/DESPLIEGUE-WINDOWS-SERVER.md`** (backend con PM2, PostgreSQL por localhost, publicado en `/rh/`).
-Variante de un solo proceso y puerto: `deploy/README-DESPLIEGUE.md`.
-
-En el servidor el frontend se compila con `npm run build`; `frontend/.env.production` fija la ruta pública (`/rh/`).
+Paso a paso en Windows Server con PM2 y Nginx (conviviendo con el BI): **`deploy/DESPLIEGUE-WINDOWS-SERVER.md`**.
+El frontend se compila con `npm run build`; `frontend/.env.production` fija la ruta pública (`/rh/`).
 
 ## Qué NO está en el repositorio
 
