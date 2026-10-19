@@ -1,0 +1,5 @@
+# Normaliza los saltos de línea (el repo se edita en Windows y se descarga en Windows Server)
+* text=auto
+*.ps1 text eol=crlf
+*.png binary
+*.ico binary

@@ -1,0 +1,47 @@
+# ── Secretos y configuración local (NUNCA se suben) ──────────────────────────
+.env
+.env.*
+!*.example
+# frontend/.env.production solo define la ruta pública (/rh/); no tiene secretos
+!frontend/.env.production
+
+# ── Datos de personas y archivos de trabajo ──────────────────────────────────
+# Excel de RRHH y .pbix con datos reales
+recurses/
+# Carpetas de contratos de prueba
+Docs_RRHH*/
+*.xlsx
+*.xls
+*.pbix
+*.pdf
+
+# ── Python / backend ─────────────────────────────────────────────────────────
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Node / frontend ──────────────────────────────────────────────────────────
+node_modules/
+# Se compila en el servidor con: npm run build
+frontend/dist/
+dist-ssr/
+*.tsbuildinfo
+*.local
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+
+# ── Editor / sistema operativo ───────────────────────────────────────────────
+.vscode/
+.idea/
+.claude/
+.DS_Store
+Thumbs.db
+*.swp
+*.suo

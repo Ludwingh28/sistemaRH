@@ -1,0 +1,106 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  /* Azul marino */
+  --color-navy-50: #f1f5f9;
+  --color-navy-100: #e2e8f0;
+  --color-navy-300: #94a3b8;
+  --color-navy-500: #4a6580;
+  --color-navy-700: #1d3a5a;
+  --color-navy-800: #152e49;
+  --color-navy-900: #0f2338;
+  --color-navy-950: #0a1826;
+
+  /* Azul de marca (igual que el ETL) */
+  --color-brand-50:  #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-200: #bfdbfe;
+  --color-brand-300: #93c5fd;
+  --color-brand-400: #60a5fa;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #2563eb;
+  --color-brand-700: #1d4ed8;
+  --color-brand-800: #1e40af;
+  --color-brand-900: #1e3a8a;
+}
+
+@layer base {
+  body {
+    @apply bg-slate-100 text-slate-900 antialiased;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-navy-100 bg-white shadow-[0_1px_2px_rgba(15,35,56,0.04)];
+  }
+
+  .field {
+    @apply w-full rounded-lg border border-navy-100 bg-white px-3 py-2 text-sm text-navy-900 placeholder:text-navy-300 transition focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 disabled:opacity-50;
+  }
+  .field-label {
+    @apply block text-xs font-medium text-navy-500;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 text-white font-semibold px-5 py-2.5 rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed;
+  }
+  .input-field {
+    @apply w-full px-4 py-2.5 border border-slate-300 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-slate-400 transition-shadow text-sm disabled:opacity-60 disabled:bg-slate-50;
+  }
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:opacity-50 bg-red-600 text-white hover:bg-red-700 focus:ring-red-500;
+  }
+
+  .tbl {
+    @apply w-full text-left text-sm;
+  }
+  .tbl thead {
+    @apply border-b border-navy-100 bg-navy-50/60;
+  }
+  .tbl th {
+    @apply px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-navy-500;
+  }
+  .tbl td {
+    @apply px-4 py-3;
+  }
+  .tbl tbody tr {
+    @apply border-b border-navy-50 transition-colors last:border-0 hover:bg-navy-50/60;
+  }
+  .tbl .num {
+    @apply text-right tabular-nums;
+  }
+  .tbl .empty {
+    @apply px-4 py-10 text-center text-navy-300;
+  }
+
+  .badge-ok {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-emerald-50 text-emerald-700;
+  }
+  .badge-off {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-navy-100 text-navy-500;
+  }
+  .badge-warn {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-amber-50 text-amber-700;
+  }
+  .badge-bad {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-red-50 text-red-700;
+  }
+  .badge-info {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-brand-50 text-brand-700;
+  }
+
+  /* Campos de texto que se guardan en MAYÚSCULAS */
+  .mayus {
+    text-transform: uppercase;
+  }
+  .mayus::placeholder {
+    text-transform: none;
+  }
+
+  .icon-btn {
+    @apply rounded-md p-1.5 text-navy-300 transition hover:bg-navy-50 hover:text-navy-900;
+  }
+}

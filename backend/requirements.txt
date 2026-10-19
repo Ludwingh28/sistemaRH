@@ -1,0 +1,11 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+sqlalchemy==2.0.35
+psycopg[binary]==3.2.3
+pydantic-settings==2.5.2
+alembic==1.13.3
+PyJWT==2.9.0
+bcrypt==4.2.0
+openpyxl==3.1.5
+holidays==0.106
+python-multipart==0.0.32
