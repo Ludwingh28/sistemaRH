@@ -32,6 +32,8 @@ GRANT USAGE ON SCHEMA dual TO rh_lector;
 GRANT SELECT ON dual.fact_detalle_pedidos TO rh_lector;
 ```
 
+> Ejecuta todo esto conectado como **`postgres`** (superusuario). Con otro usuario, PostgreSQL 16+ puede fallar con `must be able to SET ROLE "user_rh"`; en ese caso ejecuta antes `GRANT user_rh TO <tu_usuario>;`.
+
 No hay que tocar `pg_hba.conf` ni el firewall: todo va por `localhost`.
 
 ---
