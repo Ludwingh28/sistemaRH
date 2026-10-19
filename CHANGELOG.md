@@ -27,7 +27,7 @@ Ajustes de seguridad: sesión (JWT), panel de usuarios y bitácora.
 - La política de contraseñas se valida también en pantalla (`problemaClave` en `components/ui.tsx`); `MIN_PASSWORD` pasa a 8.
 
 ### Despliegue
-- Despliegue en Windows Server con Nginx: `deploy/DESPLIEGUE-WINDOWS-SERVER.md` (backend como servicio de Windows con NSSM en `127.0.0.1:8100`, PostgreSQL por `localhost`, Nginx sirve `frontend/dist` y reenvía `/rh/api/`). `deploy/windows/iniciar.ps1` escucha por defecto en `127.0.0.1:8100`. Para el modo de un solo proceso (`deploy/README-DESPLIEGUE.md`), compilar el frontend con `VITE_BASE=/` (p. ej. `set VITE_BASE=/&& npm run build`).
+- Despliegue en Windows Server con Nginx: `deploy/DESPLIEGUE-WINDOWS-SERVER.md` (backend administrado con PM2 (`deploy/windows/ecosystem.config.js`) en `127.0.0.1:8100`, PostgreSQL por `localhost`, Nginx sirve `frontend/dist` y reenvía `/rh/api/`). `deploy/windows/iniciar.ps1` escucha por defecto en `127.0.0.1:8100`. Para el modo de un solo proceso (`deploy/README-DESPLIEGUE.md`), compilar el frontend con `VITE_BASE=/` (p. ej. `set VITE_BASE=/&& npm run build`).
 - Repositorio preparado para GitHub: `.gitignore` (sin `.env`, datos de RRHH, `.venv`, `node_modules`, `dist`, logs), `.gitattributes` y `README.md` raíz; se retiraron los archivos de Docker y Linux.
 - En producción sin frontend junto al backend (modo solo API) ya no se emite una advertencia.
 

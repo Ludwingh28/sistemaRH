@@ -1,14 +1,14 @@
 # Despliegue en Windows Server 2022 (nativo, con Nginx)
 
-Instalación nativa del backend (FastAPI) como **servicio de Windows**, conviviendo con el BI (Django) y el chatbot (FastAPI), todos detrás del **Nginx** que ya tienes. El sistema se publica en `http://IP-DEL-SERVIDOR/rh/`.
+Instalación nativa del backend (FastAPI) administrado con **PM2**, conviviendo con el BI (Django) y el chatbot (FastAPI), todos detrás del **Nginx** que ya tienes. El sistema se publica en `http://IP-DEL-SERVIDOR/rh/`.
 
 ## 1. Resumen
 
-- El backend corre **directo en Windows** como servicio (NSSM), sin contenedores.
+- El backend corre **directo en Windows**, administrado con **PM2** (igual que tus otros sistemas), sin contenedores.
 - PostgreSQL por **`localhost`** (la misma instancia del BI, otra base): no hay que abrir PostgreSQL a la red ni tocar `pg_hba.conf`.
-- `E:\Docs_RRHH` es una partición local: el servicio la lee y escribe directo.
+- `E:\Docs_RRHH` es una partición local: el backend la lee y escribe directo.
 - Nginx (el que ya tienes) publica el frontend y reenvía `/rh/api/` al backend.
-- El aislamiento entre sistemas (BI, chatbot, RH…) se logra con un `venv`, un puerto, un servicio y un `.env` propios por sistema (sección 8).
+- El aislamiento entre sistemas (BI, chatbot, RH…) se logra con un `venv`, un puerto, un proceso de PM2 y un `.env` propios por sistema (sección 8).
 
 **Único punto a vigilar:** las variables de entorno **de todo el sistema** (sección 8, regla 4).
 
@@ -23,16 +23,16 @@ Instalación nativa del backend (FastAPI) como **servicio de Windows**, convivie
                                          └─ /chatbot/ …      → (cuando lo integres)                         → FastAPI   127.0.0.1:8200
 
  PostgreSQL (un solo servicio, localhost):   BI  |  sistema_rh  |  (chatbot, si usa base)
- E:\Docs_RRHH  ← lo lee/escribe el servicio SistemaRH
+ E:\Docs_RRHH  ← lo lee/escribe el proceso sistema-rh
 ```
 
 **Tabla de puertos** (anótala; cada sistema nuevo toma el siguiente y **solo escucha en `127.0.0.1`**):
 
-| Sistema | Puerto | Servicio de Windows |
+| Sistema | Puerto | Proceso en PM2 |
 |---|---|---|
 | BI (Django) | 8000 | el que ya tienes |
-| **Sistema RH (FastAPI)** | **8100** | `SistemaRH` |
-| Chatbot (FastAPI) | 8200 (sugerido) | `ChatbotBI` (sugerido) |
+| **Sistema RH (FastAPI)** | **8100** | `sistema-rh` |
+| Chatbot (FastAPI) | 8200 (sugerido) | `chatbot-bi` (sugerido) |
 
 ---
 
@@ -42,7 +42,7 @@ Instalación nativa del backend (FastAPI) como **servicio de Windows**, convivie
 |---|---|
 | Python 3.13 | Instalado **para todos los usuarios** (`C:\Program Files\Python313`), con "Add to PATH". Si ya lo usas para el chatbot, sirve el mismo |
 | Node.js | Ya lo tienes (compilas el BI con él) |
-| NSSM | [nssm.cc](https://nssm.cc): convierte el backend en servicio de Windows (descomprime `nssm.exe` en `C:\nssm`, o donde prefieras, y agrega la carpeta al `PATH`) |
+| PM2 | Ya lo tienes (administra tus otros sistemas). Debe estar configurado para arrancar con Windows, igual que para los demás |
 | Nginx | El que ya tienes (`C:\nginx`) |
 | PostgreSQL | El que ya tienes |
 
@@ -125,31 +125,25 @@ Termina con un informe `[OK] / [AVISO] / [FALLA]`. **No sigas mientras haya algu
 
 ---
 
-## 6. Dejarlo como servicio de Windows (arranca solo)
+## 6. Ponerlo en PM2 (arranca solo)
 
-PowerShell **como administrador**:
+El proyecto trae el archivo `deploy\windows\ecosystem.config.js`, que ya define el proceso `sistema-rh` (usa el Python del `.venv` del propio proyecto, escucha solo en `127.0.0.1:8100`, **un solo worker** y deja los logs en `logs\`).
 
 ```powershell
-$py  = "C:\inetpub\cruzimex\SistemaRH\backend\.venv\Scripts\python.exe"
-$dir = "C:\inetpub\cruzimex\SistemaRH\backend"
-New-Item -ItemType Directory -Force "C:\inetpub\cruzimex\SistemaRH\logs" | Out-Null
-
-nssm install SistemaRH $py "-m uvicorn app.main:app --host 127.0.0.1 --port 8100 --workers 1 --proxy-headers --no-server-header"
-nssm set SistemaRH AppDirectory $dir
-nssm set SistemaRH AppEnvironmentExtra "PYTHONIOENCODING=utf-8"
-nssm set SistemaRH Start SERVICE_AUTO_START
-nssm set SistemaRH AppStdout "C:\inetpub\cruzimex\SistemaRH\logs\salida.log"
-nssm set SistemaRH AppStderr "C:\inetpub\cruzimex\SistemaRH\logs\error.log"
-nssm set SistemaRH AppRotateFiles 1
-nssm set SistemaRH AppRotateBytes 10485760
-nssm set SistemaRH DependOnService postgresql-x64-16    # que espere a PostgreSQL al reiniciar el servidor (ajusta el nombre: Get-Service *postgres*)
-nssm start SistemaRH
+cd C:\inetpub\cruzimex\SistemaRH
+New-Item -ItemType Directory -Force logs | Out-Null
+pm2 start deploy\windows\ecosystem.config.js
+pm2 save                                   # recuerda la lista para que vuelva a arrancar con el servidor
 ```
 
-- **Un solo proceso** (`--workers 1`): el bloqueo de intentos de inicio de sesión vive en memoria.
+- **Arranque con Windows:** usa el mismo mecanismo que ya tienes para los demás sistemas (el que hayas configurado: `pm2-windows-startup`, `pm2-installer`, una tarea programada…). `pm2 save` es lo único que se agrega por sistema.
+- **Un solo proceso** (`--workers 1`): el bloqueo de intentos de inicio de sesión vive en memoria. En el `ecosystem` ya está `instances: 1` en modo `fork`; no uses modo `cluster`.
 - **`127.0.0.1`**: el backend **solo** lo alcanza Nginx; no queda expuesto a la red.
-- **Prueba:** `curl http://127.0.0.1:8100/api/health` → `{"estado":"ok","version":"0.0.0.2"}`.
-- **Cuenta del servicio:** por defecto corre como *Sistema local* y puede leer/escribir `E:\Docs_RRHH` (es una partición local). Para endurecerlo (recomendado) usa una cuenta dedicada con permiso solo sobre esa carpeta: crea el usuario `svc_rh`, dale el derecho *Iniciar sesión como servicio* (`secpol.msc` → Directivas locales → Asignación de derechos de usuario), `icacls E:\Docs_RRHH /grant "svc_rh:(OI)(CI)M"` y `nssm set SistemaRH ObjectName ".\svc_rh" "<clave>"`. También necesita lectura/escritura en `C:\inetpub\cruzimex\SistemaRH\logs` y lectura en la carpeta del proyecto.
+- **Prueba:** `curl http://127.0.0.1:8100/api/health` → `{"estado":"ok","version":"0.0.0.2"}` y `pm2 status` debe mostrar `sistema-rh` en `online`.
+- **Logs:** `pm2 logs sistema-rh`; los archivos están en `logs\salida.log` y `logs\error.log`. Para que no crezcan sin límite: `pm2 install pm2-logrotate` (una vez para todo PM2).
+- **Si el puerto 8100 queda ocupado tras detener/reiniciar** (`netstat -ano | findstr :8100` sigue mostrando un proceso): en Windows el `python.exe` de un `venv` puede lanzar un proceso hijo. PM2 normalmente cierra todo el árbol, pero si queda uno huérfano: `taskkill /PID <número> /F`.
+- **Permisos:** el backend corre con la cuenta que ejecuta PM2. Esa cuenta necesita lectura y escritura en `E:\Docs_RRHH`, y escritura en la carpeta `logs\` del proyecto. Si PM2 corre como administrador o como *Sistema local*, ya los tiene; si usas una cuenta dedicada, otórgalos: `icacls E:\Docs_RRHH /grant "CUENTA:(OI)(CI)M"`.
+- **PostgreSQL:** PM2 no puede "esperar" a un servicio de Windows. Si el servidor reinicia y el backend arranca antes que PostgreSQL, las primeras peticiones fallan y luego funcionan solas (se reconecta); no hace falta reiniciarlo.
 
 ---
 
@@ -160,7 +154,7 @@ Agrega este bloque dentro del `server { listen 80; server_name IP-DEL-SERVIDOR; 
 ```nginx
         # ==========================================================
         # SISTEMA RH
-        #   Backend  → FastAPI (servicio SistemaRH) en 127.0.0.1:8100
+        #   Backend  → FastAPI (proceso sistema-rh de PM2) en 127.0.0.1:8100
         #   Frontend → archivos de C:/inetpub/cruzimex/SistemaRH/frontend/dist
         #   http://IP-DEL-SERVIDOR/rh/
         # ==========================================================
@@ -244,7 +238,7 @@ nginx -s reload       (no uses «stop»)
 |---|---|---|
 | 1 | **Un `venv` por sistema** (`backend\.venv` dentro de cada proyecto). **Nunca** `pip install` en el Python global | Cada sistema tiene sus propias versiones de FastAPI, SQLAlchemy, etc. El chatbot puede usar otras sin afectar a RH |
 | 2 | **Un puerto por sistema, solo en `127.0.0.1`**, anotado en la tabla de la sección 2 | Evita choques; Nginx es lo único público |
-| 3 | **Un servicio de Windows por sistema**, con nombre propio (`SistemaRH`, `ChatbotBI`…), su `AppDirectory`, su `.env` y sus logs | Se inician, detienen y actualizan por separado; si uno falla los demás siguen |
+| 3 | **Un proceso de PM2 por sistema**, con nombre propio (`sistema-rh`, `chatbot-bi`…), su `cwd`, su `.env` y sus logs | Se inician, detienen y actualizan por separado; si uno falla los demás siguen |
 | 4 | **No definas variables de entorno de todo el sistema** con nombres como `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `SECRET_KEY`, `ENTORNO`… (Panel de control → Variables de entorno) | Este sistema lee su configuración de `backend\.env`, **pero una variable del sistema operativo tiene prioridad sobre el `.env`**. Si el BI o el chatbot definieran `DB_HOST` globalmente, pisarían la de RH sin avisar. Toda configuración debe ir en el `.env` de cada proyecto |
 
 Además:
@@ -253,7 +247,7 @@ Además:
 - **Cada sistema, su propio `SECRET_KEY`** (las sesiones de uno no valen en otro).
 - **Conexiones a PostgreSQL**: cada sistema abre unas pocas (RH: ~5–15). Con 3 sistemas queda muy por debajo del `max_connections` por defecto (100).
 - **Nginx**: cada sistema vive bajo su propia ruta (`/sistemabi/`, `/rh/`, `/chatbot/`), con su `location .../api/` **antes** de la del frontend.
-- El **chatbot** que se integrará al BI es independiente: tendrá su propio puerto (8200), servicio, `venv` y `.env`. Si el BI lo llama, lo hace por `http://127.0.0.1:8200`, sin pasar por Nginx.
+- El **chatbot** que se integrará al BI es independiente: tendrá su propio puerto (8200), proceso de PM2, `venv` y `.env`. Si el BI lo llama, lo hace por `http://127.0.0.1:8200`, sin pasar por Nginx.
 
 ---
 
@@ -261,17 +255,17 @@ Además:
 
 | Quiero… | Comando (PowerShell administrador) |
 |---|---|
-| Ver estado | `Get-Service SistemaRH` |
-| Reiniciar / detener / iniciar | `Restart-Service SistemaRH` / `Stop-Service SistemaRH` / `Start-Service SistemaRH` |
-| Ver errores | `Get-Content C:\inetpub\cruzimex\SistemaRH\logs\error.log -Tail 50` |
+| Ver estado | `pm2 status` |
+| Reiniciar / detener / iniciar | `pm2 restart sistema-rh` / `pm2 stop sistema-rh` / `pm2 start sistema-rh` |
+| Ver errores | `pm2 logs sistema-rh --lines 50` (o `logs\error.log`) |
 | Salud del sistema | `curl http://127.0.0.1:8100/api/health` |
 
 **Actualizar a una versión nueva** (respalda antes la base y `E:\Docs_RRHH`):
 
 | Cambió… | Qué hacer |
 |---|---|
-| **Solo el frontend** | Copia `frontend\src`, `cd frontend` → `npm run build` → `nginx -s reload`. No se toca el servicio |
-| **El backend** | `Stop-Service SistemaRH` → copia `backend\` (conserva tu `.env` y `.venv`) → `.\backend\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt` → `.\backend\.venv\Scripts\python.exe backend\seed.py` (agrega columnas/tablas nuevas sin tocar datos) → `Start-Service SistemaRH`. No se toca Nginx |
+| **Solo el frontend** | Copia `frontend\src`, `cd frontend` → `npm run build` → `nginx -s reload`. No se toca PM2 |
+| **El backend** | `pm2 stop sistema-rh` → copia `backend\` (conserva tu `.env` y `.venv`) → `.\backend\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt` → `.\backend\.venv\Scripts\python.exe backend\seed.py` (agrega columnas/tablas nuevas sin tocar datos) → `pm2 start sistema-rh`. No se toca Nginx |
 | **Ambos** | Los dos pasos |
 
 Sube también la versión en `frontend\src\changelog.ts` para que los usuarios vean las novedades.
@@ -294,18 +288,18 @@ Prueba una restauración al menos una vez.
 
 | Síntoma | Causa probable |
 |---|---|
-| El servicio no arranca | Mira `logs\error.log`. Si habla de configuración insegura: `SECRET_KEY` corta o `APP_DB_PASSWORD` débil |
-| `password authentication failed` / `connection refused` | Usuario o clave mal en `backend\.env`, o PostgreSQL detenido (el servicio depende de él) |
-| «La unidad de contratos no está disponible» | `CONTRATOS_DIR` mal escrito o la cuenta del servicio sin permiso sobre `E:\Docs_RRHH` |
+| El proceso no arranca o está en `errored` en `pm2 status` | Mira `pm2 logs sistema-rh` o `logs\error.log`. Si habla de configuración insegura: `SECRET_KEY` corta o `APP_DB_PASSWORD` débil |
+| `password authentication failed` / `connection refused` | Usuario o clave mal en `backend\.env`, o PostgreSQL detenido |
+| «La unidad de contratos no está disponible» | `CONTRATOS_DIR` mal escrito o la cuenta que ejecuta PM2 sin permiso sobre `E:\Docs_RRHH` |
 | Asistencia dice «No se pudo consultar el BI» | Credenciales `DB_*` del usuario de solo lectura, o falta el `GRANT` de la sección 4 |
 | Configuración "rara" que no coincide con tu `.env` | Hay una variable de entorno del sistema con el mismo nombre (regla 4 de la sección 8) |
 | Pantalla en blanco en `/rh/` | Falta `npm run build`, `frontend\.env.production` sin `VITE_BASE=/rh/`, o el `alias` de Nginx apunta a otra carpeta. En F12: 404 de `/rh/assets/...` → el `alias`; 404 de `/assets/...` → falta la base `/rh/` |
 | Login aparece pero la API da error 404 en `/rh/api/...` | Falta la barra final en `proxy_pass http://127.0.0.1:8100/api/;` o `/rh/api/` quedó después de `/rh/` |
-| 502 Bad Gateway | El servicio `SistemaRH` no está corriendo |
+| 502 Bad Gateway | `sistema-rh` no está `online` en `pm2 status` |
 | 413 al subir un PDF | Falta `client_max_body_size 20m;` en `/rh/api/` |
 | 403 desde una PC permitida | Su IP no está en `rh-acceso.conf` (mira el log de acceso de Nginx) |
-| «Demasiados intentos fallidos» | El administrador desbloquea en *Usuarios → editar → Seguridad*, o `Restart-Service SistemaRH` |
-| Un puerto ya está en uso | `netstat -ano \| findstr :8100`; cambia el puerto en el servicio **y** en Nginx |
+| «Demasiados intentos fallidos» | El administrador desbloquea en *Usuarios → editar → Seguridad*, o `pm2 restart sistema-rh` |
+| Un puerto ya está en uso | `netstat -ano \| findstr :8100`; cambia el puerto en el `ecosystem.config.js` **y** en Nginx |
 
 ---
 
@@ -313,7 +307,7 @@ Prueba una restauración al menos una vez.
 
 1. Base `sistema_rh` creada y roles con permisos (sección 4).
 2. `construir.ps1` y `preparar-base.ps1` sin `[FALLA]`; `ADMIN_PASSWORD` borrada del `.env`.
-3. Servicio `SistemaRH` en ejecución y `curl http://127.0.0.1:8100/api/health` responde.
+3. Proceso `sistema-rh` en `online` (`pm2 status`), `pm2 save` ejecutado, y `curl http://127.0.0.1:8100/api/health` responde.
 4. Bloque de Nginx pegado, `nginx -t` correcto, `nginx -s reload`.
 5. `http://IP-DEL-SERVIDOR/rh/` abre el login; entras con `admin`; creas las cuentas de RH/DH (reciben clave temporal).
 6. Subes un PDF de prueba y aparece en `E:\Docs_RRHH\Vendedores\...`.

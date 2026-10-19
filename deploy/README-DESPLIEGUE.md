@@ -1,6 +1,6 @@
 # Despliegue a producción — Cruzimex · Sistema RH (Canal DTS)
 
-> **Esquema recomendado para el servidor de Cruzimex** (nginx + servicio de Windows, sin Docker): `deploy/DESPLIEGUE-WINDOWS-SERVER.md`. Esta guía describe la variante de un solo proceso/puerto (frontend servido por el propio backend); para ella compila el frontend con `set VITE_BASE=/&& npm run build`.
+> **Esquema recomendado para el servidor de Cruzimex** (nginx + PM2): `deploy/DESPLIEGUE-WINDOWS-SERVER.md`. Esta guía describe la variante de un solo proceso/puerto (frontend servido por el propio backend); para ella compila el frontend con `set VITE_BASE=/&& npm run build`.
 
 En producción **todo corre en un solo proceso y un solo puerto**: el backend (FastAPI) atiende la API y también
 entrega las pantallas ya compiladas. No hace falta Node en el servidor, salvo para compilar.
@@ -39,18 +39,8 @@ Navegador ──HTTPS──▶ (Nginx / IIS, opcional) ──▶ uvicorn :8000 �
 `preparar-base.ps1` termina con un informe `[OK] / [AVISO] / [FALLA]` (`verificar_produccion.py`).
 **No sigas mientras haya alguna `[FALLA]`.**
 
-### Dejarlo como servicio de Windows (arranca solo y se reinicia si falla)
-1. Instala [NSSM](https://nssm.cc) y ejecuta (como administrador):
-   ```powershell
-   nssm install SistemaRH "C:\ruta\sistemaRH\backend\.venv\Scripts\python.exe" "-m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --proxy-headers --no-server-header"
-   nssm set SistemaRH AppDirectory "C:\ruta\sistemaRH\backend"
-   nssm set SistemaRH AppEnvironment "PYTHONIOENCODING=utf-8"
-   nssm set SistemaRH Start SERVICE_AUTO_START
-   nssm set SistemaRH AppStdout "C:\ruta\sistemaRH\logs\salida.log"
-   nssm set SistemaRH AppStderr "C:\ruta\sistemaRH\logs\error.log"
-   ```
-2. **Cuenta del servicio**: si la unidad de contratos es una ruta de red (`\\servidor\Docs_RRHH`), el servicio **no** puede correr como "Sistema local": en `nssm edit SistemaRH` → pestaña *Log on*, usa una cuenta de dominio con permiso sobre esa carpeta compartida.
-3. Abre el puerto en el firewall de Windows solo para la red interna.
+### Dejarlo siempre encendido (PM2)
+Usa `pm2 start deploy\windows\ecosystem.config.js` y `pm2 save` (ver `DESPLIEGUE-WINDOWS-SERVER.md`, sección 6). Ese archivo escucha en `127.0.0.1:8100`; para esta variante de un solo puerto con acceso directo desde la red, cambia `--host 127.0.0.1 --port 8100` por `--host 0.0.0.0 --port 8000` y abre el puerto en el firewall de Windows solo para la red interna.
 
 ## 3. Configuración (`backend\.env`)
 
