@@ -39,7 +39,7 @@ No hay que tocar `pg_hba.conf` ni el firewall: todo va por `localhost`.
 ## 3. Descargar y construir
 
 ```powershell
-git clone https://github.com/USUARIO/REPO.git C:\inetpub\cruzimex\SistemaRH
+git clone https://github.com/Ludwingh28/sistemaRH.git C:\inetpub\cruzimex\SistemaRH
 cd C:\inetpub\cruzimex\SistemaRH
 .\deploy\windows\construir.ps1
 ```
