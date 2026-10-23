@@ -1,5 +1,7 @@
-// Novedades visibles para los usuarios. Lenguaje simple, sin términos técnicos.
-// La bitácora técnica completa está en /CHANGELOG.md.
+// Novedades en lenguaje simple (sin términos técnicos). Se muestran en la ventana «Novedades» que aparece al ingresar cuando hay una
+// versión que la persona no ha visto. NO hay un panel de Novedades en el menú: el historial completo se consulta aquí, en el
+// código fuente, y en /CHANGELOG.md (bitácora técnica). Al publicar una versión hay que subir VERSION_ACTUAL (también se ve en
+// el menú lateral y en el login).
 
 export interface Version {
   version: string
@@ -8,9 +10,43 @@ export interface Version {
   correcciones: string[]
 }
 
-export const VERSION_ACTUAL = '0.0.0.2'
+export const VERSION_ACTUAL = '0.0.0.4'
 
 export const changelog: Version[] = [
+  {
+    version: '0.0.0.4',
+    fecha: '2026-10-23',
+    novedades: [
+      'Roles nuevos: Jefe RRHH y Jefe DDHH (antes «Desarrollo Humano»), además de Analista DH y Solo lectura. Cada uno tiene sus propios permisos.',
+      'Permisos por rol: el administrador decide qué puede hacer cada rol con los paneles (ver vendedores, registrarlos, importar el Excel, gestionar contratos, descargar la asistencia, gestionar feriados, ver y subir documentos…) desde «Usuarios → Roles y permisos». El administrador siempre tiene todo.',
+      'Permisos por usuario: además del rol, se le puede dar o quitar un permiso puntual a una persona desde su ficha de usuario, en la pestaña «Permisos».',
+      'Al crear un usuario se define su alcance: «Nacional» (ve todo el país) o una o varias regionales específicas (por ejemplo solo Santa Cruz). Quien tiene alcance regional solo ve y gestiona los vendedores, contratos, asistencia, rotación, documentación y feriados de sus regionales, y en los filtros solo aparecen sus zonas y equipos. El alcance se puede cambiar después desde «Editar» el usuario, y se ve en la lista de usuarios.',
+      'Cada persona solo ve en el menú los paneles a los que tiene acceso, y los botones que no puede usar no aparecen. Los cambios de permisos se aplican de inmediato.',
+      'Nuevo panel «Documentación»: una tabla con los vendedores y los documentos que deben entregar (Kardex, CI, Fachada y Ubicación, todos en PDF). Un check verde indica que su PDF ya está en el sistema y una X roja que falta. Se filtra por zona, equipo, estado del vendedor y nombre, y se puede ver solo a quienes tienen faltantes o solo quienes deben un documento en particular.',
+      'Al tocar un casillero se abre el documento del vendedor: se ve el archivo y se sube arrastrando y soltando el PDF. Un documento solo cuenta como entregado cuando su PDF está subido al sistema, aunque exista en físico.',
+      'La ficha del vendedor tiene una pestaña «Documentación» con esos mismos documentos.',
+      'En «Vendedores → Carpetas de contratos», el botón «Crear las carpetas que faltan» ahora también crea las carpetas de Kardex, CI, Fachada y Ubicación de cada vendedor (solo con alcance nacional).',
+      'Buscador en Asistencia y en Documentación: escribe parte del nombre, el código, el equipo o la zona y la tabla se acota al instante (sin acentos ni mayúsculas: «nandu» encuentra a «Ñandú»). Un botón X o la tecla Escape limpian la búsqueda. Al exportar la asistencia a Excel se respeta la búsqueda: baja lo que ves.',
+      'Animaciones de carga en los paneles: al abrir un panel o cambiar un filtro aparece una barra de progreso y el contenido se atenúa mientras llegan los datos nuevos, y en la primera carga se ven marcadores grises en lugar de una pantalla vacía.',
+    ],
+    correcciones: [],
+  },
+  {
+    version: '0.0.0.3',
+    fecha: '2026-10-19',
+    novedades: [
+      'Nuevo botón «Importar Excel» en Vendedores: sube el Excel mensual de RRHH (por ejemplo septiembre y luego octubre). Antes de cargar, el sistema muestra un resumen: cuántos vendedores se crean, a cuántos se les actualizan los datos, cuántas bajas hay y qué filas no se pueden cargar y por qué.',
+      'La importación se puede repetir sin miedo: los vendedores nuevos se crean, a los que ya existen se les completan o corrigen los datos (teléfonos, nacimiento, carnet, zona, bajas…) y nunca se borra a nadie. Una celda vacía en el Excel no borra un dato que ya está en el sistema.',
+      'Las filas con problemas (sin código, código o carnet repetido, zona desconocida, fechas dudosas) no se cargan y quedan explicadas en el resumen, para corregirlas en el Excel y volver a subirlo.',
+      'Opción para corregir automáticamente fechas de ingreso en el futuro que tengan el día y el mes invertidos (por ejemplo 09/11/2026 en lugar de 11/09/2026).',
+      'Los contratos duran 1 año exacto: si empiezan el 08/04/2026, terminan el 08/04/2027 (antes terminaban un día antes).',
+      'Al importar, el sistema compara el código de cada vendedor con el del BI y avisa si no existe o si pertenece a otra persona (con el código correcto sugerido), porque un código equivocado hace que la asistencia salga con faltas.',
+      'Ahora se puede corregir el código de un vendedor desde su ficha, en «Editar datos».',
+      'Si el Excel trae la columna del número de contratos del vendedor (Nº CONTRATO), el sistema la usa.',
+      'Las carpetas de contratos ahora se organizan por regional: Santa Cruz, Cochabamba, La Paz… y dentro de cada una, «Vendedores», con la carpeta de cada vendedor y su subcarpeta «Contratos». Si se abre una regional nueva, su carpeta se crea sola.',
+    ],
+    correcciones: [],
+  },
   {
     version: '0.0.0.2',
     fecha: '2026-10-19',

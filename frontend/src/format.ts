@@ -20,12 +20,11 @@ export const sumarDias = (iso: string, n: number) => {
   return aIso(d)
 }
 
-/** Contrato de 1 año: del 8/4/2026 al 7/4/2027 (mismo cálculo que el servidor). */
+/** Contrato de 1 año exacto: del 8/4/2026 al 8/4/2027 (mismo cálculo que el servidor). */
 export const finPorDefecto = (inicio: string) => {
   const d = aFecha(inicio)
   const fin = new Date(d.getFullYear() + 1, d.getMonth(), d.getDate(), 12)
   if (fin.getMonth() !== d.getMonth()) fin.setDate(0) // 29 de febrero
-  fin.setDate(fin.getDate() - 1)
   return aIso(fin)
 }
 
@@ -75,3 +74,6 @@ export const mesDesplazado = (iso: string, delta: number) => {
 /** Días que abarca un rango, ambos extremos incluidos. */
 export const diasEnRango = (desde: string, hasta: string) =>
   Math.round((aFecha(hasta).getTime() - aFecha(desde).getTime()) / 86400000) + 1
+
+/** Para buscar: sin acentos, en mayúsculas y con espacios simples («Ñandú» ≈ «NANDU»). */
+export const sinAcentos = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toUpperCase()

@@ -8,9 +8,10 @@ from app.core.database import Base
 
 
 class Rol(str, enum.Enum):
-    admin = "admin"  # gestiona usuarios y todo lo demás
-    dh = "dh"  # Desarrollo Humano: crea, actualiza y da de baja vendedores
-    analista_dh = "analista_dh"  # igual que dh en vendedores
+    admin = "admin"  # gestiona usuarios, permisos y todo lo demás
+    jefe_rrhh = "jefe_rrhh"  # Jefe de Recursos Humanos (RRHH)
+    dh = "dh"  # Jefe de Desarrollo Humano (DDHH). El código «dh» se conserva por las cuentas ya creadas
+    analista_dh = "analista_dh"  # Analista de DDHH
     lector = "lector"  # solo consulta (ej. cuenta del BI)
 
 
@@ -25,11 +26,66 @@ class Usuario(Base):
     activo: Mapped[bool] = mapped_column(default=True)
     email: Mapped[str | None] = mapped_column(String(120))
     ultimo_acceso: Mapped[datetime | None] = mapped_column(DateTime)
+    # Alcance: True = ve todo el país (nacional); False = solo las regionales de `usuario_regionales`
+    todas_regionales: Mapped[bool] = mapped_column(default=True, server_default="true")
+    _regionales: Mapped[list["UsuarioRegional"]] = relationship(cascade="all, delete-orphan", lazy="selectin")
     # La persona debe elegir su propia contraseña al ingresar (cuentas nuevas o con clave restablecida por el admin).
     debe_cambiar_clave: Mapped[bool] = mapped_column(default=False, server_default="false")
     # Los tokens emitidos antes de este momento (UTC) dejan de valer: «cerrar sesiones» del administrador.
     sesiones_desde: Mapped[datetime | None] = mapped_column(DateTime)
     creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    @property
+    def regionales(self) -> list[int]:
+        """Ids de las regionales que puede ver (solo importa si `todas_regionales` es False)."""
+        return sorted(r.regional_id for r in self._regionales)
+
+    def asignar_regionales(self, ids: list[int]) -> None:
+        self._regionales = [UsuarioRegional(regional_id=i) for i in sorted(set(ids))]
+
+
+class UsuarioRegional(Base):
+    """Regionales que puede ver un usuario con alcance restringido."""
+
+    __tablename__ = "usuario_regionales"
+
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id", ondelete="CASCADE"), primary_key=True)
+    regional_id: Mapped[int] = mapped_column(ForeignKey("regionales.id", ondelete="CASCADE"), primary_key=True)
+
+
+class DocumentoMarca(Base):
+    """RESERVADA (hoy sin uso): marca manual «no aplica» sobre un documento de un vendedor, por si más adelante hay
+    casos en que un documento no corresponda pedirlo. Un documento cuenta como entregado solo si está subido."""
+
+    __tablename__ = "documento_marcas"
+    __table_args__ = (UniqueConstraint("vendedor_id", "categoria", name="uq_marca_vendedor_categoria"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    vendedor_id: Mapped[int] = mapped_column(ForeignKey("vendedores.id", ondelete="CASCADE"), index=True)
+    categoria: Mapped[str] = mapped_column(String(30))
+    estado: Mapped[str] = mapped_column(String(20))  # no_aplica
+    nota: Mapped[str | None] = mapped_column(String(255))
+    usuario: Mapped[str | None] = mapped_column(String(80))
+    fecha: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class RolConfig(Base):
+    """Permisos de un rol (lista JSON de códigos) editados por el admin. Sin fila = se usan los de por defecto."""
+
+    __tablename__ = "roles_config"
+
+    rol: Mapped[str] = mapped_column(String(30), primary_key=True)
+    permisos: Mapped[str] = mapped_column(String(2000), default="[]")
+
+
+class UsuarioPermiso(Base):
+    """Ajuste puntual de un usuario sobre los permisos de su rol: permitido=True lo da, False lo quita."""
+
+    __tablename__ = "usuario_permisos"
+
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id", ondelete="CASCADE"), primary_key=True)
+    permiso: Mapped[str] = mapped_column(String(60), primary_key=True)
+    permitido: Mapped[bool] = mapped_column()
 
 
 class Auditoria(Base):

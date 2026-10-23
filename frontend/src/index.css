@@ -104,3 +104,35 @@
     @apply rounded-md p-1.5 text-navy-300 transition hover:bg-navy-50 hover:text-navy-900;
   }
 }
+
+/* ── Barra de carga de los paneles (ver components/Cargando.tsx) ─────────────── */
+.barra-carga {
+  position: absolute;
+  inset: 0 0 auto 0;
+  z-index: 40;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+.barra-carga::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 35%;
+  border-radius: 3px;
+  background: var(--color-brand-500, #2563eb);
+  animation: barra-carga 1.1s ease-in-out infinite;
+}
+.barra-carga-activa {
+  opacity: 1;
+}
+@keyframes barra-carga {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .barra-carga::after { animation-duration: 2.4s; }
+}

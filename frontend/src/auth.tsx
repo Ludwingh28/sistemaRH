@@ -7,7 +7,8 @@ interface AuthCtx {
   loading: boolean
   login: (username: string, password: string) => Promise<void>
   logout: () => void
-  puedeEscribir: boolean
+  /** ¿Tiene este permiso? (los permisos los define el admin por rol y por usuario; el admin tiene todos) */
+  puede: (permiso: string) => boolean
   /** La sesión vence en menos de 2 minutos y la persona no la ha renovado. */
   porVencer: boolean
   /** Ya se llegó al máximo de la sesión: renovar no la extiende y hay que ingresar de nuevo. */
@@ -67,6 +68,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // Si el admin cambia los permisos, se reflejan al volver a esta pestaña (el servidor ya los aplica en cada petición).
+  useEffect(() => {
+    if (!user) return
+    const releer = () => {
+      if (document.visibilityState === 'visible') api.me().then((u) => setUser((a) => (a && a.id === u.id ? u : a))).catch(() => {})
+    }
+    document.addEventListener('visibilitychange', releer)
+    return () => document.removeEventListener('visibilitychange', releer)
+  }, [user?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Sesión deslizante: mientras la persona trabaja se renueva sola; si deja de trabajar, vence.
   useEffect(() => {
     if (!user) return
@@ -110,10 +121,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = () => cerrar()
 
-  const puedeEscribir = !!user && ['admin', 'dh', 'analista_dh'].includes(user.rol)
+  const puede = useCallback((permiso: string) => !!user && (user.rol === 'admin' || !!user.permisos?.includes(permiso)), [user])
 
   return (
-    <Ctx.Provider value={{ user, loading, login, logout, puedeEscribir, porVencer, topeAlcanzado, renovar, adoptarSesion }}>
+    <Ctx.Provider value={{ user, loading, login, logout, puede, porVencer, topeAlcanzado, renovar, adoptarSesion }}>
       {children}
     </Ctx.Provider>
   )

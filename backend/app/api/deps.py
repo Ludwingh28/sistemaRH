@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import huella, leer_token
+from app.core.alcance import alcance_de_usuario
+from app.core.permisos import permisos_efectivos
 from app.models import Rol, Usuario
 
 oauth2 = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
@@ -43,10 +45,12 @@ def usuario_base(sesion: tuple[Usuario, dict] = Depends(sesion_actual)) -> Usuar
     return sesion[0]
 
 
-def usuario_actual(user: Usuario = Depends(usuario_base)) -> Usuario:
-    """Usuario autenticado. Mientras deba cambiar su contraseña, solo puede usar /auth/*."""
+def usuario_actual(user: Usuario = Depends(usuario_base), db: Session = Depends(get_db)) -> Usuario:
+    """Usuario autenticado. Mientras deba cambiar su contraseña, solo puede usar /auth/*.
+    También fija su alcance geográfico (nacional o regionales) para todas las consultas de la petición."""
     if user.debe_cambiar_clave:
         raise HTTPException(403, "Debes cambiar tu contraseña antes de continuar")
+    db.info["alcance"] = alcance_de_usuario(user)
     return user
 
 
@@ -62,5 +66,13 @@ def requiere(*roles: Rol):
     return check
 
 
-# Escritura de vendedores: DH y Analista DH. Lectura: cualquier usuario autenticado.
-puede_escribir = requiere(Rol.dh, Rol.analista_dh)
+def requiere_permiso(*codigos: str):
+    """Dependencia que exige AL MENOS UNO de los permisos indicados (el admin siempre pasa). Ver core/permisos.py."""
+
+    def check(user: Usuario = Depends(usuario_actual), db: Session = Depends(get_db)) -> Usuario:
+        efectivos = permisos_efectivos(db, user)
+        if not any(c in efectivos for c in codigos):
+            raise HTTPException(403, "No tienes permiso para esta acción")
+        return user
+
+    return check

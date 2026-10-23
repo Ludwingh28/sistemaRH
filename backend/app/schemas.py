@@ -96,6 +96,7 @@ class VendedorCrear(BaseModel):
 
 
 class VendedorActualizar(BaseModel):
+    codigo_vendedor: MayusOpt = None  # corregir el código (el que usa el BI para la asistencia)
     documento: MayusOpt = None
     nombre: Mayus | None = Field(default=None, min_length=1)
     sexo: Sexo | None = None
@@ -163,3 +164,46 @@ class ResumenVendedores(BaseModel):
     por_vencer: int
     vencidos: int
     retirados: int
+
+
+# ── Importación de vendedores desde Excel ────────────────────────────────────
+
+class ImportNuevo(BaseModel):
+    fila: int
+    codigo: str
+    nombre: str
+    equipo: str
+    estado: str
+    ingreso: date
+    baja: date | None = None
+
+
+class ImportCambio(BaseModel):
+    fila: int
+    codigo: str
+    nombre: str
+    cambios: list[str]
+
+
+class ImportObservacion(BaseModel):
+    nivel: str  # OMITIDO | AVISO | CORREGIDO
+    fila: int
+    codigo: str
+    nombre: str
+    mensaje: str
+
+
+class ImportacionOut(BaseModel):
+    aplicado: bool = False
+    filas_leidas: int
+    nuevos: list[ImportNuevo]
+    actualizados: list[ImportCambio]
+    sin_cambios: int
+    omitidos: int
+    bajas: int
+    por_equipo: dict[str, int]
+    contratos_vencidos: int
+    por_vencer: int
+    observaciones: list[ImportObservacion]
+    carpetas_creadas: int = 0
+    aviso_carpetas: str | None = None

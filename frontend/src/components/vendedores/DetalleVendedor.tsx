@@ -1,9 +1,10 @@
-import { Check, FileText, History, Pencil, Plus, RefreshCw, Trash2, UserCheck, UserMinus } from 'lucide-react'
+import { Check, FileText, FolderOpen, History, Pencil, Plus, RefreshCw, Trash2, UserCheck, UserMinus } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
 import { api } from '../../api'
+import { useAuth } from '../../auth'
 import { fmt, finPorDefecto, hoyIso, sumarDias } from '../../format'
 import type {
-  Contrato, EstadoContratoFila, Regional, VendedorDetalle, VendedorEditable,
+  Contrato, DocCategoria, EstadoContratoFila, Regional, VendedorDetalle, VendedorEditable,
 } from '../../types'
 import { Avatar, ErrorBox, Modal, alEscribirMayus, labelCls, type ToastData } from '../ui'
 import Documentos from './Documentos'
@@ -194,22 +195,25 @@ function FormBaja({
 
 // ── Detalle ──────────────────────────────────────────────────────────────────
 
-type Tab = 'datos' | 'contratos' | 'historial'
+type Tab = 'datos' | 'contratos' | 'documentos' | 'historial'
 
-const MAYUS = new Set(['nombre', 'documento', 'cargo', 'area']) // se escriben en MAYÚSCULAS
+const MAYUS = new Set(['nombre', 'codigo', 'documento', 'cargo', 'area']) // se escriben en MAYÚSCULAS
 
 export default function DetalleVendedor({
-  id, estructura, puedeEscribir, tabInicial = 'contratos', onClose, onChanged, onToast,
+  id, estructura, tabInicial = 'contratos', onClose, onChanged, onToast,
 }: {
   id: number
   estructura: Regional[]
-  puedeEscribir: boolean
   tabInicial?: Tab
   onClose: () => void
   onChanged: () => void
   onToast: (t: ToastData) => void
 }) {
+  const { puede } = useAuth()
+  const puedeEditar = puede('vendedores.editar')
+  const puedeContratos = puede('contratos.gestionar')
   const [det, setDet] = useState<VendedorDetalle | null>(null)
+  const [categorias, setCategorias] = useState<DocCategoria[]>([])
   const [editando, setEditando] = useState(false) // los datos se ven en lectura; se editan solo a propósito
   const [tab, setTab] = useState<Tab>(tabInicial)
   const [datos, setDatos] = useState<Record<string, string>>({})
@@ -220,10 +224,15 @@ export default function DetalleVendedor({
 
   const cargarDatos = (d: VendedorDetalle) =>
     setDatos({
-      nombre: d.nombre, documento: d.documento ?? '', sexo: d.sexo ?? '', nacimiento: d.fecha_nacimiento ?? '',
+      nombre: d.nombre, codigo: d.codigo_vendedor, documento: d.documento ?? '', sexo: d.sexo ?? '', nacimiento: d.fecha_nacimiento ?? '',
       telCorp: d.telefono_corporativo ?? '', telPers: d.telefono_personal ?? '', cargo: d.cargo, area: d.area,
       equipoId: String(d.equipo_id), primerIngreso: d.fecha_primer_ingreso,
     })
+
+  useEffect(() => {
+    if (puede('documentos.ver')) api.docCategorias().then(setCategorias).catch(() => setCategorias([]))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     api.vendedor(id).then((d) => { setDet(d); cargarDatos(d) }).catch((e) => setError(e.message))
@@ -242,6 +251,7 @@ export default function DetalleVendedor({
     setBusy(true)
     const cambios: VendedorEditable = {
       nombre: datos.nombre.trim(),
+      codigo_vendedor: datos.codigo.trim(),
       documento: datos.documento.trim(),
       sexo: (datos.sexo as 'M' | 'F') || null,
       fecha_nacimiento: datos.nacimiento || null,
@@ -276,7 +286,7 @@ export default function DetalleVendedor({
     <div>
       <label className={labelCls}>{label}</label>
       <input
-        type={tipo} className={`input-field ${MAYUS.has(k) ? 'mayus' : ''}`} value={datos[k] ?? ''} disabled={!puedeEscribir}
+        type={tipo} className={`input-field ${MAYUS.has(k) ? 'mayus' : ''}`} value={datos[k] ?? ''} disabled={!puedeEditar}
         onChange={(e) =>
           MAYUS.has(k)
             ? alEscribirMayus((v) => setDatos((d) => ({ ...d, [k]: v })))(e)
@@ -288,9 +298,10 @@ export default function DetalleVendedor({
 
   const tabs = [
     { id: 'contratos', label: 'Contratos', icon: FileText },
+    ...(puede('documentos.ver') ? [{ id: 'documentos', label: 'Documentación', icon: FolderOpen }] : []),
     { id: 'datos', label: 'Datos', icon: UserCheck },
     { id: 'historial', label: 'Historial', icon: History },
-  ] as const
+  ] as { id: Tab; label: string; icon: typeof FileText }[]
 
   const titulo = det ? (
     <span className="flex items-center gap-3">
@@ -330,7 +341,7 @@ export default function DetalleVendedor({
                 <p className="text-sm text-slate-500">
                   {det.total_contratos} {det.total_contratos === 1 ? 'contrato' : 'contratos'} · ingresó el {fmt(det.fecha_primer_ingreso)}
                 </p>
-                {puedeEscribir && det.vigente && (
+                {puedeContratos && det.vigente && (
                   <button onClick={() => setModoContrato({ tipo: 'renovar' })} className="btn-primary text-sm">
                     <RefreshCw size={14} /> Renovar contrato
                   </button>
@@ -350,7 +361,7 @@ export default function DetalleVendedor({
                         </span>
                       )}
                       {c.estado === 'vencido' && <span className="text-xs text-red-500">venció hace {-c.dias_para_vencer} días</span>}
-                      {puedeEscribir && (
+                      {puedeContratos && (
                         <span className="ml-auto flex gap-1">
                           <button className="icon-btn" title="Editar contrato" onClick={() => setModoContrato({ tipo: 'editar', contrato: c })}>
                             <Pencil size={14} />
@@ -376,13 +387,24 @@ export default function DetalleVendedor({
                 )
               })}
 
-              {puedeEscribir && <Documentos vendedorId={det.id} nombre={det.nombre} />}
+              {puede('documentos.ver') && <Documentos vendedorId={det.id} nombre={det.nombre} />}
 
-              {puedeEscribir && det.vigente && (
+              {puedeContratos && det.vigente && (
                 <button onClick={() => setModoContrato({ tipo: 'anterior' })} className="flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700">
                   <Plus size={14} /> Agregar un contrato anterior
                 </button>
               )}
+            </div>
+          )}
+
+          {tab === 'documentos' && (
+            <div className="space-y-3">
+              <p className="text-sm text-slate-500">
+                Documentos de {det.nombre.split(' ')[0]} en su carpeta de la unidad compartida. Todos en PDF. Para ver qué falta de todos los vendedores usa el panel «Documentación».
+              </p>
+              {categorias.filter((c) => c.clave !== 'contratos').map((c) => (
+                <Documentos key={c.clave} vendedorId={det.id} nombre={det.nombre} categoria={c.clave} titulo={c.titulo} extensiones={c.extensiones} />
+              ))}
             </div>
           )}
 
@@ -420,10 +442,11 @@ export default function DetalleVendedor({
             <div className="space-y-4">
               {campo('nombre', 'Nombre completo')}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {campo('codigo', 'Código de vendedor (el del BI)')}
                 {campo('documento', 'Carnet de identidad')}
                 <div>
                   <label className={labelCls}>Sexo</label>
-                  <select className="input-field" value={datos.sexo ?? ''} disabled={!puedeEscribir} onChange={(e) => setDatos({ ...datos, sexo: e.target.value })}>
+                  <select className="input-field" value={datos.sexo ?? ''} disabled={!puedeEditar} onChange={(e) => setDatos({ ...datos, sexo: e.target.value })}>
                     <option value="">—</option>
                     <option value="F">Femenino</option>
                     <option value="M">Masculino</option>
@@ -438,7 +461,7 @@ export default function DetalleVendedor({
               </div>
               <div>
                 <label className={labelCls}>Equipo DTS</label>
-                <select className="input-field" value={datos.equipoId ?? ''} disabled={!puedeEscribir} onChange={(e) => setDatos({ ...datos, equipoId: e.target.value })}>
+                <select className="input-field" value={datos.equipoId ?? ''} disabled={!puedeEditar} onChange={(e) => setDatos({ ...datos, equipoId: e.target.value })}>
                   {estructura.map((r) => (
                     <optgroup key={r.id} label={r.nombre}>
                       {r.equipos.map((eq) => <option key={eq.id} value={eq.id}>{eq.nombre}</option>)}
@@ -476,14 +499,14 @@ export default function DetalleVendedor({
           {error && <div className="mt-4"><ErrorBox>{error}</ErrorBox></div>}
 
           <div className="mt-6 flex items-center gap-3 border-t border-slate-100 pt-4">
-            {puedeEscribir && det.vigente && (
+            {puede('vendedores.baja') && det.vigente && (
               <button onClick={() => setBaja(true)} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-red-500 transition-colors hover:bg-red-50 hover:text-red-700">
                 <UserMinus size={14} /> Dar de baja
               </button>
             )}
             <div className="ml-auto flex items-center gap-3">
               <button onClick={onClose} className="rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-700">Cerrar</button>
-              {tab === 'datos' && puedeEscribir && !editando && det.vigente && (
+              {tab === 'datos' && puedeEditar && !editando && det.vigente && (
                 <button onClick={() => { cargarDatos(det); setError(''); setEditando(true) }} className="btn-primary text-sm"><Pencil size={14} /> Editar datos</button>
               )}
               {tab === 'datos' && editando && (

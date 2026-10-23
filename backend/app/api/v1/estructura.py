@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import usuario_actual
+from app.core.alcance import alcance_de
 from app.core.database import get_db
 from app.models import EquipoDTS, Regional
 
@@ -24,7 +25,11 @@ class RegionalOut(BaseModel):
 
 @router.get("", response_model=list[RegionalOut])
 def estructura(db: Session = Depends(get_db)):
-    regionales = db.scalars(select(Regional).order_by(Regional.nombre))
+    consulta = select(Regional).order_by(Regional.nombre)
+    al = alcance_de(db)
+    if al.ids is not None:
+        consulta = consulta.where(Regional.id.in_(al.ids))
+    regionales = db.scalars(consulta)
     return [
         RegionalOut(
             id=r.id,

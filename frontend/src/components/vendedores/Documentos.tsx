@@ -1,6 +1,7 @@
 import { CheckCircle2, Copy, Download, Eye, FileText, FolderPlus, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { api, guardarComo } from '../../api'
+import { useAuth } from '../../auth'
 import { fmt } from '../../format'
 import type { ArchivoContrato, DocumentosVendedor } from '../../types'
 import { ErrorBox } from '../ui'
@@ -36,6 +37,7 @@ export default function Documentos({
   titulo?: string
   extensiones?: string[]
 }) {
+  const { puede } = useAuth()
   const [datos, setDatos] = useState<DocumentosVendedor | null>(null)
   const [error, setError] = useState('')
   const [exito, setExito] = useState('')
@@ -162,12 +164,14 @@ export default function Documentos({
                 </div>
                 <button className="icon-btn" title="Ver" aria-label={`Ver ${a.nombre}`} onClick={() => ver(a)}><Eye size={15} /></button>
                 <button className="icon-btn" title="Descargar" aria-label={`Descargar ${a.nombre}`} onClick={() => ver(a, true)}><Download size={15} /></button>
-                <button className="icon-btn hover:text-red-600!" title="Quitar" aria-label={`Quitar ${a.nombre}`} onClick={() => quitar(a)}><Trash2 size={15} /></button>
+                {puede('documentos.eliminar') && (
+                  <button className="icon-btn hover:text-red-600!" title="Quitar" aria-label={`Quitar ${a.nombre}`} onClick={() => quitar(a)}><Trash2 size={15} /></button>
+                )}
               </div>
             ))}
           </div>
 
-          <div className="mt-3">
+          {puede('documentos.subir') && <div className="mt-3">
             <ZonaSuelta
               onArchivos={subir}
               accept={extensiones.join(',')}
@@ -175,9 +179,9 @@ export default function Documentos({
               ayuda={`${extensiones.map((x) => x.slice(1).toUpperCase()).join(', ')} · hasta ${MAX_MB} MB`}
               disabled={busy}
             />
-          </div>
+          </div>}
 
-          {!datos.existe_carpeta && (
+          {!datos.existe_carpeta && puede('documentos.subir') && (
             <button onClick={crearCarpeta} disabled={busy} className="mt-2 flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-700 disabled:opacity-50">
               <FolderPlus size={13} /> Crear la carpeta ahora
             </button>

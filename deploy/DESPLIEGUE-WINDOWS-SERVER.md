@@ -184,9 +184,38 @@ nginx -s reload
 
 1. Abre `http://IP-DEL-SERVIDOR/rh/` → aparece el login.
 2. Entra con `admin` y su clave. En **Usuarios**, crea las cuentas de RH/DH (cada una recibe una clave temporal y debe elegir la suya al ingresar).
-3. Crea un vendedor de prueba y sube un PDF: debe aparecer en `E:\Docs_RRHH\Vendedores\<NOMBRE>\Contratos\`. Bórralo después.
+3. Crea un vendedor de prueba y sube un PDF: debe aparecer en `E:\Docs_RRHH\<Regional>\Vendedores\<NOMBRE>\Contratos\` (por ejemplo `Santa Cruz\Vendedores\...`). Bórralo después.
 4. Comprueba que el BI sigue funcionando: `http://IP-DEL-SERVIDOR/sistemabi/`.
-5. Primer día con datos reales: en *Vendedores → Carpetas de contratos* (solo admin) vincula las carpetas que RH ya tiene.
+5. **Alcance y permisos:** al crear cada usuario elige su alcance (*Nacional* o las regionales que verá). Luego, en *Usuarios → Roles y permisos* define qué puede hacer cada rol; en la edición de un usuario, la pestaña *Permisos* permite darle o quitarle algo puntual. Por defecto Jefe RRHH, Jefe DDHH y Analista DH hacen todo lo de RRHH y «Solo lectura» solo consulta.
+6. **Documentación:** el panel *Documentación* lee las subcarpetas `Kardex`, `CI`, `Fachada` y `Ubicación` de la carpeta de cada vendedor (PDF). Si RH copia archivos directamente ahí, aparecen solos con un check. Un documento solo cuenta cuando su PDF está en el sistema, aunque exista en físico.
+7. **Cargar los datos de RRHH:** en *Vendedores → Importar Excel* sube primero el Excel de septiembre y, cuando esté bien, el de octubre. Cada subida muestra antes un resumen; las filas con problemas no se cargan y quedan explicadas (corrígelas en el Excel y vuelve a subirlo: nada se duplica). Los meses siguientes se suben igual.
+8. Primer día con datos reales: en *Vendedores → Carpetas de contratos* (solo admin) usa «Crear las carpetas que faltan» y «Revisar nombres» para vincular las carpetas que RH ya tiene.
+
+### Crear las carpetas de los vendedores ya cargados
+
+Desde el sistema: *Vendedores → Carpetas de contratos → Crear las carpetas que faltan* (solo con alcance nacional). Crea, para cada vendedor vigente, `<Regional>\Vendedores\<NOMBRE>\Contratos | Kardex | CI | Fachada | Ubicación`. No borra ni mueve nada y reutiliza las carpetas que RH ya tenga con el mismo nombre.
+
+### Estructura de la unidad de contratos
+
+```
+E:\Docs_RRHH\
+├── Santa Cruz\Vendedores\NOMBRE DEL VENDEDOR\Contratos\*.pdf
+├── Cochabamba\Vendedores\...
+└── La Paz\Vendedores\...        (El Alto también va en La Paz)
+```
+Si se abre otra regional, su carpeta se crea sola con su primer vendedor. Si RH ya tenía carpetas con el mismo nombre (aunque cambien mayúsculas o acentos), el sistema las reconoce. Un vendedor que cambia de regional **conserva su carpeta donde está** (el sistema no mueve archivos solo).
+
+### Repetir las pruebas de carga (vaciar los vendedores)
+
+Mientras pruebas la importación puedes dejar la base de vendedores en cero y volver a subir el Excel. Desde el servidor:
+
+```cmd
+cd C:\inetpub\cruzimex\sistemaRH\backend
+.venv\Scripts\python.exe limpiar_vendedores.py                         (solo muestra qué borraría)
+.venv\Scripts\python.exe limpiar_vendedores.py --confirmo --produccion (lo borra)
+```
+
+Borra vendedores, contratos e historial. **Conserva** usuarios, regionales/equipos, feriados y la bitácora, y no toca la base del BI. Las carpetas creadas en `E:\Docs_RRHH` (`<Regional>\Vendedores\...`) no se borran solas: elimínalas a mano si quieres empezar limpio.
 
 ---
 

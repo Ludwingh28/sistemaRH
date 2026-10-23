@@ -9,11 +9,12 @@ from sqlalchemy.orm import Session
 from app.api.deps import requiere, sesion_actual, usuario_base
 from app.core import ratelimit
 from app.core.config import settings
+from app.core.permisos import permisos_efectivos
 from app.core.database import get_db
 from app.core.security import (
     crear_token, hash_password, leer_token, problema_clave, segundos_restantes, verify_password,
 )
-from app.models import Auditoria, Rol, Usuario
+from app.models import Auditoria, Regional, Rol, Usuario
 
 router = APIRouter(tags=["auth"])
 
@@ -48,6 +49,9 @@ class UsuarioOut(BaseModel):
     ultimo_acceso: datetime | None = None
     debe_cambiar_clave: bool = False
     bloqueado: bool = False  # bloqueo por intentos fallidos vigente (solo en el listado)
+    permisos: list[str] = []  # permisos efectivos (solo en /auth/me)
+    todas_regionales: bool = True  # alcance: True = nacional
+    regionales: list[int] = []  # si no es nacional: ids de las regionales que ve
 
     model_config = {"from_attributes": True}
 
@@ -58,6 +62,8 @@ class UsuarioCrear(BaseModel):
     email: str | None = None
     password: str
     rol: Rol
+    todas_regionales: bool = True  # nacional (todas las regionales) o solo las de `regionales`
+    regionales: list[int] = []
 
     _norm = field_validator("username")(_username)
 
@@ -74,6 +80,8 @@ class UsuarioActualizar(BaseModel):
     email: str | None = None
     rol: Rol | None = None
     activo: bool | None = None
+    todas_regionales: bool | None = None
+    regionales: list[int] | None = None
 
     @field_validator("username")
     @classmethod
@@ -150,8 +158,10 @@ def login(data: Login, request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/auth/me", response_model=UsuarioOut)
-def me(user: Usuario = Depends(usuario_base)):
-    return user
+def me(user: Usuario = Depends(usuario_base), db: Session = Depends(get_db)):
+    out = UsuarioOut.model_validate(user)
+    out.permisos = sorted(permisos_efectivos(db, user))
+    return out
 
 
 @router.post("/auth/refresh")
@@ -199,10 +209,30 @@ def crear(data: UsuarioCrear, request: Request, actor: Usuario = Depends(requier
         rol=data.rol, password_hash=hash_password(data.password), debe_cambiar_clave=True,
     )
     db.add(u)
-    auditar(db, "usuario_creado", u.username, request, actor.username, f"rol {data.rol.value}")
+    alcance = _aplicar_alcance(db, u, data.todas_regionales, data.regionales)
+    auditar(db, "usuario_creado", u.username, request, actor.username, f"rol {data.rol.value}; alcance {alcance}")
     db.commit()
     db.refresh(u)
     return u
+
+
+def _aplicar_alcance(db: Session, u: Usuario, todas: bool, regionales: list[int]) -> str:
+    """Fija el alcance de la cuenta (el admin siempre es nacional). Devuelve una descripción para la bitácora."""
+    if u.rol == Rol.admin:
+        todas = True
+    if todas:
+        u.todas_regionales = True
+        u.asignar_regionales([])
+        return "nacional"
+    ids = sorted(set(regionales))
+    if not ids:
+        raise HTTPException(422, "Elige al menos una regional, o marca «Nacional» si debe ver todo el país.")
+    existentes = {r.id: r.nombre for r in db.scalars(select(Regional).where(Regional.id.in_(ids)))}
+    if set(ids) - set(existentes):
+        raise HTTPException(422, "Alguna regional no existe")
+    u.todas_regionales = False
+    u.asignar_regionales(ids)
+    return "regionales: " + ", ".join(existentes[i] for i in ids)
 
 
 def _otro_usuario(db: Session, actor: Usuario, usuario_id: int) -> Usuario:
@@ -230,13 +260,26 @@ def actualizar(
         cambios["nombre"] = cambios["nombre"].strip()
     if "email" in cambios:
         cambios["email"] = (cambios["email"] or "").strip() or None
+    todas_nuevo, regionales_nuevo = cambios.pop("todas_regionales", None), cambios.pop("regionales", None)
     antes = {k: getattr(u, k) for k in cambios}
+    alcance_antes = (u.todas_regionales, tuple(u.regionales))
     for k, val in cambios.items():
         setattr(u, k, val)
+    detalle_alcance = None
+    if todas_nuevo is not None or regionales_nuevo is not None or u.rol == Rol.admin:
+        todas = u.todas_regionales if todas_nuevo is None else todas_nuevo
+        regs = list(u.regionales) if regionales_nuevo is None else regionales_nuevo
+        if not todas and regionales_nuevo is None and todas_nuevo is False and not regs:
+            regs = []
+        detalle_alcance = _aplicar_alcance(db, u, todas, regs)
+        if (u.todas_regionales, tuple(u.regionales)) == alcance_antes:
+            detalle_alcance = None
     if cambios.get("activo") is False and antes.get("activo") is not False:
         u.sesiones_desde = datetime.now(timezone.utc).replace(tzinfo=None)
     resumen = ", ".join(f"{k}: {getattr(antes[k], 'value', antes[k])} → {getattr(v, 'value', v)}"
                         for k, v in cambios.items() if antes[k] != v)
+    if detalle_alcance:
+        resumen = (resumen + "; " if resumen else "") + "alcance: " + detalle_alcance
     auditar(db, "usuario_modificado", u.username, request, actor.username, resumen or None)
     db.commit()
     db.refresh(u)

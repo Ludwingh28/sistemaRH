@@ -1,15 +1,18 @@
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app import schemas
-from app.api.deps import puede_escribir, usuario_actual
+from app.api.deps import requiere_permiso
+from app.core.alcance import alcance_de
 from app.core.database import get_db
 from app.models import Contrato, EquipoDTS, HistorialVendedor, Vendedor
-from app.services import carpetas
+from app.integrations import bi
+from app.services import carpetas, importacion
 from app.services.calculos import (
     DIAS_NUEVO,
     MOTIVOS_BAJA,
@@ -17,7 +20,7 @@ from app.services.calculos import (
     fin_contrato_por_defecto,
 )
 
-router = APIRouter(prefix="/vendedores", tags=["vendedores"], dependencies=[Depends(usuario_actual)])
+router = APIRouter(prefix="/vendedores", tags=["vendedores"], dependencies=[Depends(requiere_permiso("vendedores.ver"))])
 
 
 # ── Armado de respuestas ─────────────────────────────────────────────────────
@@ -73,7 +76,7 @@ def _consulta():
 
 def _get(db: Session, vendedor_id: int) -> Vendedor:
     v = db.scalar(_consulta().where(Vendedor.id == vendedor_id))
-    if not v:
+    if not v or not alcance_de(db).permite(v.equipo.regional_id):  # fuera de su alcance = no existe para esa persona
         raise HTTPException(404, "Vendedor no encontrado")
     return v
 
@@ -121,11 +124,62 @@ def motivos_baja():
     return MOTIVOS_BAJA
 
 
+MAX_EXCEL_MB = 5
+
+
+def _procesar_importacion(db: Session, contenido: bytes, aplicar: bool, corregir_fechas: bool, usuario: str) -> dict:
+    try:
+        datos = importacion.leer_excel(contenido)
+    except importacion.ErrorExcel as e:
+        raise HTTPException(422, str(e)) from e
+    try:
+        usuarios_bi = bi.usuarios_bi()
+        aviso_bi = None
+    except Exception:  # el BI puede no estar disponible: la importación sigue, sin esa comprobación
+        usuarios_bi, aviso_bi = None, "No se pudo comparar los códigos con el BI (no hay conexión); revisa que sean los mismos que usa el BI."
+    plan = importacion.planificar(db, datos, corregir_fechas, usuarios_bi)
+    if aviso_bi:
+        plan.observaciones.append({"nivel": "AVISO", "fila": 0, "codigo": "", "nombre": "", "mensaje": aviso_bi})
+    out = importacion.resumen(plan)
+    if not aplicar:
+        return out
+    try:
+        creados = importacion.aplicar(db, plan, usuario)["nuevos"]
+        db.commit()
+    except IntegrityError as e:
+        db.rollback()
+        raise HTTPException(409, "No se pudo cargar: algún código o carnet ya existe. Vuelve a revisar el archivo.") from e
+    out["aplicado"] = True
+    # Carpeta de contratos de cada vendedor nuevo (si la unidad falla, la carga ya está guardada)
+    aviso = None
+    for v in creados:
+        r = carpetas.asegurar_al_crear(db, v)
+        aviso = aviso or r
+    db.commit()
+    out["carpetas_creadas"] = sum(1 for v in creados if v.carpeta_contratos) if carpetas.configurada() else 0
+    out["aviso_carpetas"] = aviso
+    return out
+
+
+@router.post("/importar", response_model=schemas.ImportacionOut)
+async def importar(
+    archivo: UploadFile = File(...), aplicar: bool = Form(False), corregir_fechas: bool = Form(False),
+    db: Session = Depends(get_db), user=Depends(requiere_permiso("vendedores.importar")),
+):
+    """Sube el Excel mensual de RRHH. Con `aplicar=false` solo revisa y devuelve qué haría; con `aplicar=true` lo carga.
+    Es repetible: crea los vendedores nuevos y actualiza los existentes (ver services/importacion.py)."""
+    limite = MAX_EXCEL_MB * 1024 * 1024
+    contenido = await archivo.read(limite + 1)
+    if len(contenido) > limite:
+        raise HTTPException(413, f"El archivo supera el máximo de {MAX_EXCEL_MB} MB")
+    return await run_in_threadpool(_procesar_importacion, db, contenido, aplicar, corregir_fechas, user.username)
+
+
 @router.get("/resumen", response_model=schemas.ResumenVendedores)
 def resumen(db: Session = Depends(get_db)):
     hoy = date.today()
     r = dict(vigentes=0, nuevos=0, por_vencer=0, vencidos=0, retirados=0)
-    for v in db.scalars(_consulta()).unique():
+    for v in db.scalars(alcance_de(db).filtrar(_consulta())).unique():
         o = _out(v, hoy)
         if o.estado == "retirado":
             r["retirados"] += 1
@@ -138,9 +192,12 @@ def resumen(db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=schemas.VendedorDetalle, status_code=201)
-def crear(data: schemas.VendedorCrear, db: Session = Depends(get_db), user=Depends(puede_escribir)):
-    if not db.get(EquipoDTS, data.equipo_id):
+def crear(data: schemas.VendedorCrear, db: Session = Depends(get_db), user=Depends(requiere_permiso("vendedores.crear"))):
+    equipo = db.get(EquipoDTS, data.equipo_id)
+    if not equipo:
         raise HTTPException(422, "Equipo DTS inexistente")
+    if not alcance_de(db).permite(equipo.regional_id):
+        raise HTTPException(403, "Esa zona está fuera de tu alcance.")
     if db.scalar(select(Vendedor).where(Vendedor.codigo_vendedor == data.codigo_vendedor)):
         raise HTTPException(409, "El código de vendedor ya existe")
     if data.documento and db.scalar(select(Vendedor).where(Vendedor.documento == data.documento)):
@@ -175,7 +232,7 @@ def listar(
     vence_en: int | None = None,  # vigentes cuyo contrato vence dentro de N días
     db: Session = Depends(get_db),
 ):
-    consulta = _consulta()
+    consulta = alcance_de(db).filtrar(_consulta())
     if vigente is not None:
         consulta = consulta.where(Vendedor.fecha_baja.is_(None) if vigente else Vendedor.fecha_baja.is_not(None))
     if equipo_id:
@@ -209,7 +266,7 @@ def obtener(vendedor_id: int, db: Session = Depends(get_db)):
 
 @router.patch("/{vendedor_id}", response_model=schemas.VendedorDetalle)
 def actualizar(
-    vendedor_id: int, data: schemas.VendedorActualizar, db: Session = Depends(get_db), user=Depends(puede_escribir)
+    vendedor_id: int, data: schemas.VendedorActualizar, db: Session = Depends(get_db), user=Depends(requiere_permiso("vendedores.editar"))
 ):
     v = _get(db, vendedor_id)
     cambios = data.model_dump(exclude_unset=True)
@@ -218,12 +275,26 @@ def actualizar(
             cambios[campo] = (cambios[campo] or "").strip() or None
     if "nombre" in cambios:
         cambios["nombre"] = cambios["nombre"].strip()
+    if "codigo_vendedor" in cambios:
+        nuevo = (cambios["codigo_vendedor"] or "").strip()
+        if not nuevo:
+            cambios.pop("codigo_vendedor")
+        elif nuevo != v.codigo_vendedor:
+            if db.scalar(select(Vendedor).where(Vendedor.codigo_vendedor == nuevo)):
+                raise HTTPException(409, "Ya existe un vendedor con ese código")
+            _evento(db, v, "cambio_codigo", date.today(), f"{v.codigo_vendedor} -> {nuevo}", user.username)
+            cambios["codigo_vendedor"] = nuevo
+        else:
+            cambios.pop("codigo_vendedor")
     if cambios.get("documento") and cambios["documento"] != v.documento:
         if db.scalar(select(Vendedor).where(Vendedor.documento == cambios["documento"])):
             raise HTTPException(409, "Ya existe un vendedor con ese carnet de identidad")
     if "equipo_id" in cambios and cambios["equipo_id"] != v.equipo_id:
-        if not db.get(EquipoDTS, cambios["equipo_id"]):
+        nuevo_equipo = db.get(EquipoDTS, cambios["equipo_id"])
+        if not nuevo_equipo:
             raise HTTPException(422, "Equipo DTS inexistente")
+        if not alcance_de(db).permite(nuevo_equipo.regional_id):
+            raise HTTPException(403, "Esa zona está fuera de tu alcance.")
         _evento(db, v, "cambio_equipo", date.today(), f"{v.equipo_id} -> {cambios['equipo_id']}", user.username)
     if cambios.get("fecha_primer_ingreso") and v.contratos:
         if cambios["fecha_primer_ingreso"] > min(c.fecha_inicio for c in v.contratos):
@@ -238,7 +309,7 @@ def actualizar(
 
 @router.post("/{vendedor_id}/baja", response_model=schemas.VendedorDetalle)
 def dar_de_baja(
-    vendedor_id: int, data: schemas.VendedorBaja, db: Session = Depends(get_db), user=Depends(puede_escribir)
+    vendedor_id: int, data: schemas.VendedorBaja, db: Session = Depends(get_db), user=Depends(requiere_permiso("vendedores.baja"))
 ):
     v = _get(db, vendedor_id)
     if v.fecha_baja:
@@ -259,7 +330,7 @@ def dar_de_baja(
 
 @router.post("/{vendedor_id}/contratos", response_model=schemas.VendedorDetalle, status_code=201)
 def agregar_contrato(
-    vendedor_id: int, data: schemas.ContratoCrear, db: Session = Depends(get_db), user=Depends(puede_escribir)
+    vendedor_id: int, data: schemas.ContratoCrear, db: Session = Depends(get_db), user=Depends(requiere_permiso("contratos.gestionar"))
 ):
     """Renueva el contrato (o registra uno anterior). Sin datos, crea el siguiente por 1 año."""
     v = _get(db, vendedor_id)
@@ -305,7 +376,7 @@ def _contrato(db: Session, contrato_id: int) -> Contrato:
 
 @router.patch("/contratos/{contrato_id}", response_model=schemas.VendedorDetalle)
 def actualizar_contrato(
-    contrato_id: int, data: schemas.ContratoActualizar, db: Session = Depends(get_db), user=Depends(puede_escribir)
+    contrato_id: int, data: schemas.ContratoActualizar, db: Session = Depends(get_db), user=Depends(requiere_permiso("contratos.gestionar"))
 ):
     c = _contrato(db, contrato_id)
     v = _get(db, c.vendedor_id)
@@ -334,7 +405,7 @@ def actualizar_contrato(
 
 
 @router.delete("/contratos/{contrato_id}", response_model=schemas.VendedorDetalle)
-def eliminar_contrato(contrato_id: int, db: Session = Depends(get_db), user=Depends(puede_escribir)):
+def eliminar_contrato(contrato_id: int, db: Session = Depends(get_db), user=Depends(requiere_permiso("contratos.gestionar"))):
     c = _contrato(db, contrato_id)
     v = _get(db, c.vendedor_id)
     if len(v.contratos) <= 1:

@@ -6,6 +6,11 @@ import type {
   ResultadoCrearCarpetas,
   RevisionCarpetas,
   EventoAuditoria,
+  Importacion,
+  DocCategoria,
+  MatrizDoc,
+  PermisosRoles,
+  PermisosUsuario,
   Sesion,
   EstadoFeriados,
   Feriado,
@@ -89,7 +94,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API}${path}`, {
     ...init,
     headers: {
-      'Content-Type': 'application/json',
+      ...(init.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init.headers,
     },
@@ -189,7 +194,7 @@ export const api = {
   sincronizarFeriados: (anio: number) =>
     request<EstadoFeriados>(`/asistencia/feriados/sincronizar${qs({ anio })}`, { method: 'POST' }),
 
-  exportarAsistencia: (f: { desde?: string; hasta?: string; regional_id?: number; equipo_id?: number }) =>
+  exportarAsistencia: (f: { desde?: string; hasta?: string; regional_id?: number; equipo_id?: number; q?: string }) =>
     archivo(`/asistencia/exportar${qs(f)}`),
 
   // Documentos de cada vendedor (carpeta compartida de RH). `categoria`: tipo de documento (hoy «contratos»).
@@ -219,19 +224,41 @@ export const api = {
   ausentismo: (f: { desde?: string; hasta?: string; regional_id?: number; equipo_id?: number }) =>
     request<Ausentismo>(`/rotacion/ausentismo${qs(f)}`),
 
+  importarVendedores: (archivo: File, aplicar: boolean, corregirFechas: boolean) => {
+    const datos = new FormData()
+    datos.append('archivo', archivo)
+    datos.append('aplicar', String(aplicar))
+    datos.append('corregir_fechas', String(corregirFechas))
+    return request<Importacion>('/vendedores/importar', { method: 'POST', body: datos })
+  },
+
   // Usuarios
   usuarios: () => request<Usuario[]>('/usuarios'),
-  crearUsuario: (d: { username: string; nombre: string; email?: string; rol: Rol; password: string }) =>
+  crearUsuario: (d: { username: string; nombre: string; email?: string; rol: Rol; password: string; todas_regionales: boolean; regionales: number[] }) =>
     request<Usuario>('/usuarios', json('POST', d)),
   actualizarUsuario: (
     id: number,
-    d: Partial<{ username: string; nombre: string; email: string; rol: Rol; activo: boolean }>,
+    d: Partial<{ username: string; nombre: string; email: string; rol: Rol; activo: boolean; todas_regionales: boolean; regionales: number[] }>,
   ) => request<Usuario>(`/usuarios/${id}`, json('PATCH', d)),
   fijarPassword: (id: number, new_password: string) =>
     request<{ ok: boolean }>(`/usuarios/${id}/password`, json('POST', { new_password })),
   eliminarUsuario: (id: number) => request<void>(`/usuarios/${id}`, { method: 'DELETE' }),
   cambiarPassword: (current_password: string, new_password: string) =>
     request<Sesion>('/auth/change-password', json('POST', { current_password, new_password })),
+  // Permisos (solo admin)
+  permisos: () => request<PermisosRoles>('/permisos'),
+  guardarPermisosRol: (rol: string, permisos: string[]) =>
+    request<{ permisos: string[] }>(`/permisos/roles/${rol}`, json('PUT', { permisos })),
+  restablecerPermisosRol: (rol: string) => request<{ permisos: string[] }>(`/permisos/roles/${rol}/restablecer`, { method: 'POST' }),
+  permisosUsuario: (id: number) => request<PermisosUsuario>(`/usuarios/${id}/permisos`),
+  guardarPermisosUsuario: (id: number, permitir: string[], denegar: string[]) =>
+    request<PermisosUsuario>(`/usuarios/${id}/permisos`, json('PUT', { permitir, denegar })),
+
+  // Documentación
+  docCategorias: () => request<DocCategoria[]>('/documentacion/categorias'),
+  docMatriz: (f: { regional_id?: number; equipo_id?: number; estado?: string; q?: string; solo_faltantes?: boolean }) =>
+    request<MatrizDoc>(`/documentacion/matriz${qs(f)}`),
+
   cerrarSesiones: (id: number) => request<{ ok: boolean }>(`/usuarios/${id}/cerrar-sesiones`, { method: 'POST' }),
   desbloquearUsuario: (id: number) =>
     request<{ ok: boolean; bloqueos_levantados: number }>(`/usuarios/${id}/desbloquear`, { method: 'POST' }),

@@ -22,8 +22,8 @@ def sumar_anios(d: date, anios: int = 1) -> date:
 
 
 def fin_contrato_por_defecto(inicio: date) -> date:
-    """Contrato de 1 año: del 8/4/2026 al 7/4/2027 (el último día es la víspera del aniversario)."""
-    return sumar_anios(inicio) - timedelta(days=1)
+    """Contrato de 1 año exacto: del 8/4/2026 al 8/4/2027 (termina el día del aniversario)."""
+    return sumar_anios(inicio)
 
 
 def estado_contrato(fecha_fin: date, vigente: bool, hoy: date | None = None) -> tuple[str, int]:

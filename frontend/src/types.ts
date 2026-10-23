@@ -1,4 +1,4 @@
-export type Rol = 'admin' | 'dh' | 'analista_dh' | 'lector'
+export type Rol = 'admin' | 'jefe_rrhh' | 'dh' | 'analista_dh' | 'lector'
 
 export interface Usuario {
   id: number
@@ -10,6 +10,9 @@ export interface Usuario {
   ultimo_acceso: string | null
   debe_cambiar_clave: boolean
   bloqueado: boolean
+  permisos?: string[] // permisos efectivos (solo viene en /auth/me)
+  todas_regionales: boolean // alcance: true = nacional
+  regionales: number[] // si no es nacional: regionales que ve
 }
 
 export interface EventoAuditoria {
@@ -131,6 +134,7 @@ export interface VendedorCrear {
 export type VendedorEditable = Partial<
   Pick<
     Vendedor,
+    | 'codigo_vendedor'
     | 'documento'
     | 'nombre'
     | 'sexo'
@@ -287,5 +291,87 @@ export interface RevisionCarpetas {
 export interface ResultadoCrearCarpetas {
   vinculadas: number
   creadas: number
+  subcarpetas: number
   errores: string[]
+}
+
+export interface ImportObservacion {
+  nivel: 'OMITIDO' | 'AVISO' | 'CORREGIDO' | string
+  fila: number
+  codigo: string
+  nombre: string
+  mensaje: string
+}
+
+export interface Importacion {
+  aplicado: boolean
+  filas_leidas: number
+  nuevos: { fila: number; codigo: string; nombre: string; equipo: string; estado: string; ingreso: string; baja: string | null }[]
+  actualizados: { fila: number; codigo: string; nombre: string; cambios: string[] }[]
+  sin_cambios: number
+  omitidos: number
+  bajas: number
+  por_equipo: Record<string, number>
+  contratos_vencidos: number
+  por_vencer: number
+  observaciones: ImportObservacion[]
+  carpetas_creadas: number
+  aviso_carpetas: string | null
+}
+
+// ── Permisos
+export interface PermisoDef {
+  codigo: string
+  etiqueta: string
+  grupo: string
+  descripcion: string
+}
+
+export interface PermisosRoles {
+  catalogo: PermisoDef[]
+  roles: Record<string, string[]>
+  defecto: Record<string, string[]>
+  personalizados: string[]
+}
+
+export interface PermisosUsuario {
+  rol: string
+  del_rol: string[]
+  permitir: string[]
+  denegar: string[]
+  efectivos: string[]
+}
+
+// ── Documentación
+export interface DocCategoria {
+  clave: string
+  titulo: string
+  corto: string
+  extensiones: string[]
+}
+
+export type EstadoDoc = 'ok' | 'falta'
+
+export interface CeldaDoc {
+  estado: EstadoDoc
+  archivos: number
+}
+
+export interface FilaDoc {
+  vendedor_id: number
+  codigo: string
+  nombre: string
+  equipo: string
+  regional: string
+  vigente: boolean
+  docs: Record<string, CeldaDoc>
+  faltan: number
+}
+
+export interface MatrizDoc {
+  columnas: DocCategoria[]
+  filas: FilaDoc[]
+  resumen: { vendedores: number; completos: number; por_documento: Record<string, Record<EstadoDoc, number>> }
+  unidad_disponible: boolean
+  aviso: string | null
 }

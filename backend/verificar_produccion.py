@@ -80,12 +80,17 @@ if settings.CONTRATOS_DIR:
             ok(f"unidad {base} accesible y con permiso de escritura")
         except OSError as e:
             mal(f"la unidad {base} existe pero el servicio no puede escribir en ella: {e}")
-        vendedores = base / settings.CONTRATOS_SUBCARPETA
-        if vendedores.is_dir():
-            n = sum(1 for p in vendedores.iterdir() if p.is_dir())
-            ok(f"carpeta «{settings.CONTRATOS_SUBCARPETA}» con {n} carpetas de vendedores")
+        regionales, carpetas_v = 0, 0
+        for reg in base.iterdir():
+            if reg.is_dir() and not reg.name.startswith(("_", ".")):
+                sub = reg / settings.CONTRATOS_SUBCARPETA
+                if sub.is_dir():
+                    regionales += 1
+                    carpetas_v += sum(1 for p in sub.iterdir() if p.is_dir())
+        if regionales:
+            ok(f"{regionales} regional(es) con carpeta «{settings.CONTRATOS_SUBCARPETA}» y {carpetas_v} carpetas de vendedores")
         else:
-            aviso(f"no existe «{vendedores}»: se creará al registrar el primer vendedor o con «Crear las carpetas que faltan».")
+            aviso(f"no hay ninguna «<regional>\\{settings.CONTRATOS_SUBCARPETA}» en {base}: se creará al registrar el primer vendedor o con «Crear las carpetas que faltan».")
     else:
         mal(f"la unidad {base} no existe o no es accesible (¿red compartida conectada?)")
 else:

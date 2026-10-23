@@ -58,7 +58,8 @@ export function PageHeader({ titulo, subtitulo, accion }: { titulo: string; subt
 
 export const ROL_LABEL: Record<string, string> = {
   admin: 'Administrador',
-  dh: 'Desarrollo Humano',
+  jefe_rrhh: 'Jefe RRHH',
+  dh: 'Jefe DDHH',
   analista_dh: 'Analista DH',
   lector: 'Solo lectura',
 }

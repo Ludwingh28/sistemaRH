@@ -15,7 +15,7 @@ export default function Login() {
   const [aviso] = useState(leerAviso) // por qué se perdió la sesión (expiró, la cerró un administrador…)
   const [submitting, setSubmitting] = useState(false)
 
-  if (user) return <Navigate to="/vendedores" replace />
+  if (user) return <Navigate to="/" replace />
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()

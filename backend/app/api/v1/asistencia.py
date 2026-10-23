@@ -8,16 +8,18 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from app.api.deps import puede_escribir, usuario_actual
+from app.api.deps import requiere_permiso
+from app.core.alcance import alcance_de
 from app.core.database import get_db
 from app.integrations import bi
 from app.models import EquipoDTS, Feriado, Regional, Vendedor
 from app.services import feriados as feriados_svc
+from app.services.carpetas import normalizar as carpetas_norm
 from app.services.exportar import asistencia_xlsx
 from app.services.feriados import sincronizar_si_corresponde, ultima_sync
 from app.services.calculos import ultimo_dia_activo
 
-router = APIRouter(prefix="/asistencia", tags=["asistencia"], dependencies=[Depends(usuario_actual)])
+router = APIRouter(prefix="/asistencia", tags=["asistencia"], dependencies=[Depends(requiere_permiso("asistencia.ver"))])
 
 DIAS_ES = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
 
@@ -100,18 +102,22 @@ def matriz(
     return construir_matriz(db, desde, hasta, regional_id, equipo_id)
 
 
-@router.get("/exportar")
+@router.get("/exportar", dependencies=[Depends(requiere_permiso("asistencia.exportar"))])
 def exportar(
     desde: date | None = None,
     hasta: date | None = None,
     regional_id: int | None = None,
     equipo_id: int | None = None,
+    q: str | None = None,  # texto buscado en pantalla (nombre, código, equipo o zona)
     db: Session = Depends(get_db),
-    user=Depends(usuario_actual),
+    user=Depends(requiere_permiso("asistencia.exportar")),
 ):
     """Descarga la asistencia en Excel, con los mismos filtros que la pantalla."""
     desde, hasta = _rango(desde, hasta)
     matriz = construir_matriz(db, desde, hasta, regional_id, equipo_id)
+    if q and q.strip():
+        t = carpetas_norm(q)
+        matriz.filas = [f for f in matriz.filas if t in carpetas_norm(f"{f.nombre} {f.codigo_vendedor} {f.equipo} {f.zona}")]
     zona = db.get(Regional, regional_id).nombre if regional_id and db.get(Regional, regional_id) else "TODAS"
     equipo = db.get(EquipoDTS, equipo_id).nombre if equipo_id and db.get(EquipoDTS, equipo_id) else "TODOS"
     contenido = asistencia_xlsx(matriz, f"Zona: {zona.upper()}  ·  Equipo: {equipo.upper()}", user.nombre)
@@ -144,6 +150,7 @@ def trabajando_hoy(
     consulta = select(Vendedor).options(
         joinedload(Vendedor.equipo).joinedload(EquipoDTS.regional), selectinload(Vendedor.contratos)
     )
+    consulta = alcance_de(db).filtrar(consulta)
     if equipo_id:
         consulta = consulta.where(Vendedor.equipo_id == equipo_id)
     if regional_id:
@@ -193,6 +200,7 @@ def construir_matriz(
     consulta = select(Vendedor).options(
         joinedload(Vendedor.equipo).joinedload(EquipoDTS.regional), selectinload(Vendedor.contratos)
     )
+    consulta = alcance_de(db).filtrar(consulta)
     if equipo_id:
         consulta = consulta.where(Vendedor.equipo_id == equipo_id)
     if regional_id:
@@ -210,9 +218,11 @@ def construir_matriz(
         sincronizar_si_corresponde(db, anio)
     feriados = list(
         db.scalars(
-            select(Feriado)
-            .where(Feriado.fecha.between(desde, hasta), Feriado.activo.is_(True))
-            .options(joinedload(Feriado.regional))
+            alcance_de(db).filtrar_feriados(
+                select(Feriado)
+                .where(Feriado.fecha.between(desde, hasta), Feriado.activo.is_(True))
+                .options(joinedload(Feriado.regional))
+            )
         )
     )
     nacionales = {f.fecha for f in feriados if f.regional_id is None}
@@ -288,6 +298,17 @@ class EstadoFeriados(BaseModel):
     ultima_actualizacion: datetime | None  # UTC
 
 
+def _feriado_gestionable(db: Session, feriado_id: int) -> Feriado:
+    """Feriado que esta persona puede modificar: los nacionales solo con alcance nacional; los de zona, solo de sus regionales."""
+    f = db.get(Feriado, feriado_id)
+    al = alcance_de(db)
+    if not f or (f.regional_id is not None and not al.permite(f.regional_id)):
+        raise HTTPException(404, "Feriado no encontrado")
+    if f.regional_id is None and not al.nacional:
+        raise HTTPException(403, "Los feriados nacionales solo los gestiona quien tiene alcance nacional.")
+    return f
+
+
 @router.get("/feriados/estado", response_model=EstadoFeriados)
 def estado_feriados(anio: int | None = None, db: Session = Depends(get_db)):
     anio = anio or date.today().year
@@ -295,9 +316,11 @@ def estado_feriados(anio: int | None = None, db: Session = Depends(get_db)):
     return EstadoFeriados(fuente=feriados_svc.FUENTE, ultima_actualizacion=ultima.fecha_hora if ultima else None)
 
 
-@router.post("/feriados/sincronizar", response_model=EstadoFeriados, dependencies=[Depends(puede_escribir)])
-def sincronizar_feriados(anio: int | None = None, db: Session = Depends(get_db), user=Depends(puede_escribir)):
+@router.post("/feriados/sincronizar", response_model=EstadoFeriados, dependencies=[Depends(requiere_permiso("feriados.gestionar"))])
+def sincronizar_feriados(anio: int | None = None, db: Session = Depends(get_db), user=Depends(requiere_permiso("feriados.gestionar"))):
     """Regenera los feriados automáticos del año (nacionales y departamentales)."""
+    if not alcance_de(db).nacional:
+        raise HTTPException(403, "Solo con alcance nacional se pueden regenerar los feriados de todo el país.")
     anio = anio or date.today().year
     feriados_svc.sincronizar(db, anio, usuario=user.username)
     return estado_feriados(anio, db)
@@ -313,13 +336,16 @@ def listar_feriados(anio: int | None = None, db: Session = Depends(get_db)):
         .options(joinedload(Feriado.regional))
         .order_by(Feriado.fecha)
     )
-    return [_feriado_out(f) for f in db.scalars(q)]
+    return [_feriado_out(f) for f in db.scalars(alcance_de(db).filtrar_feriados(q))]
 
 
-@router.post("/feriados", response_model=FeriadoOut, status_code=201, dependencies=[Depends(puede_escribir)])
+@router.post("/feriados", response_model=FeriadoOut, status_code=201, dependencies=[Depends(requiere_permiso("feriados.gestionar"))])
 def crear_feriado(data: FeriadoCrear, db: Session = Depends(get_db)):
     if data.regional_id is not None and not db.get(Regional, data.regional_id):
         raise HTTPException(422, "Regional inexistente")
+    al = alcance_de(db)
+    if (data.regional_id is None and not al.nacional) or (data.regional_id is not None and not al.permite(data.regional_id)):
+        raise HTTPException(403, "Ese feriado está fuera de tu alcance: solo puedes gestionar los de tus regionales.")
     descripcion = data.descripcion.strip().upper()
     if not descripcion:
         raise HTTPException(422, "Indica la descripción del feriado")
@@ -339,23 +365,19 @@ class FeriadoActivar(BaseModel):
     activo: bool
 
 
-@router.patch("/feriados/{feriado_id}", response_model=FeriadoOut, dependencies=[Depends(puede_escribir)])
+@router.patch("/feriados/{feriado_id}", response_model=FeriadoOut, dependencies=[Depends(requiere_permiso("feriados.gestionar"))])
 def activar_feriado(feriado_id: int, data: FeriadoActivar, db: Session = Depends(get_db)):
     """Desactiva (o reactiva) un feriado, sin borrarlo: así una nueva sincronización no lo vuelve a cargar."""
-    f = db.get(Feriado, feriado_id)
-    if not f:
-        raise HTTPException(404, "Feriado no encontrado")
+    f = _feriado_gestionable(db, feriado_id)
     f.activo = data.activo
     db.commit()
     db.refresh(f)
     return _feriado_out(f)
 
 
-@router.delete("/feriados/{feriado_id}", status_code=204, dependencies=[Depends(puede_escribir)])
+@router.delete("/feriados/{feriado_id}", status_code=204, dependencies=[Depends(requiere_permiso("feriados.gestionar"))])
 def eliminar_feriado(feriado_id: int, db: Session = Depends(get_db)):
-    f = db.get(Feriado, feriado_id)
-    if not f:
-        raise HTTPException(404, "Feriado no encontrado")
+    f = _feriado_gestionable(db, feriado_id)
     if f.origen != "manual":
         raise HTTPException(409, "Los feriados automáticos no se eliminan: desactívalos")
     db.delete(f)

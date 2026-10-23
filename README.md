@@ -4,7 +4,7 @@ Gestión de vendedores del canal DTS: contratos y renovaciones, asistencia (a pa
 
 - **Backend:** FastAPI + SQLAlchemy 2 + PostgreSQL (`backend/`)
 - **Frontend:** React 19 + Vite + Tailwind v4 (`frontend/`)
-- **Versión actual y novedades:** `CHANGELOG.md` (técnico) y `frontend/src/changelog.ts` (para usuarios)
+- **Versión actual e historial de cambios:** `CHANGELOG.md` (técnico) y `frontend/src/changelog.ts` (en lenguaje simple). No hay un panel de Novedades en el menú; al subir de versión, la ventana «Novedades» aparece una vez al ingresar. La versión también se ve en el menú lateral y en el login
 
 ## Estructura
 

@@ -5,7 +5,9 @@ import { useAuth } from '../auth'
 import { ErrorBox, Modal, PageHeader, Toast, alEscribirMayus, labelCls, type ToastData } from '../components/ui'
 import FiltroRango, { useRango } from '../components/FiltroRango'
 import { useMediaQuery } from '../useMediaQuery'
-import { fmt, hoyIso } from '../format'
+import { fmt, hoyIso, sinAcentos } from '../format'
+import Buscador from '../components/Buscador'
+import { BarraCarga, Esqueleto } from '../components/Cargando'
 import type { CeldaAsistencia, EstadoFeriados, Feriado, FilaAsistencia, MatrizAsistencia, Regional, TrabajandoHoy } from '../types'
 
 // El servidor guarda UTC sin zona; se muestra en hora local.
@@ -173,7 +175,8 @@ function Feriados({
 // ── Página ───────────────────────────────────────────────────────────────────
 
 export default function Asistencia() {
-  const { puedeEscribir } = useAuth()
+  const { puede } = useAuth()
+  const puedeEscribir = puede('feriados.gestionar')
   const [estructura, setEstructura] = useState<Regional[]>([])
   const { rango, setRango, desde, hasta } = useRango()
   const compacto = useMediaQuery('(max-width: 767px)')
@@ -181,6 +184,7 @@ export default function Asistencia() {
   const LEFT = { codigo: 0, vendedor: W.codigo, zona: W.codigo + W.vendedor, equipo: W.codigo + W.vendedor + W.zona }
   const [regionalId, setRegionalId] = useState('')
   const [equipoId, setEquipoId] = useState('')
+  const [q, setQ] = useState('') // búsqueda por nombre, código, equipo o zona (se filtra en pantalla, sin volver a consultar)
   const [matriz, setMatriz] = useState<MatrizAsistencia | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -198,6 +202,7 @@ export default function Asistencia() {
         hasta,
         regional_id: regionalId ? Number(regionalId) : undefined,
         equipo_id: equipoId ? Number(equipoId) : undefined,
+        q: q.trim() || undefined,
       })
       guardarComo(blob, nombre ?? `Asistencia_${desde}_${hasta}.xlsx`)
       setToast({ msg: 'Excel generado.', type: 'ok' })
@@ -261,12 +266,19 @@ export default function Asistencia() {
     return ''
   }
 
+  // Filas que se muestran: las del rango y filtros, acotadas por la búsqueda
+  const filasVisibles = useMemo(() => {
+    const todas = matriz?.filas ?? []
+    const t = sinAcentos(q)
+    return t ? todas.filter((f) => sinAcentos(`${f.nombre} ${f.codigo_vendedor} ${f.equipo} ${f.zona}`).includes(t)) : todas
+  }, [matriz, q])
+
   const totales = useMemo(() => {
-    const filas = matriz?.filas ?? []
+    const filas = filasVisibles
     const habiles = filas.reduce((s, f) => s + f.habiles, 0)
     const asistidos = filas.reduce((s, f) => s + f.asistidos, 0)
     return { vendedores: filas.length, pct: habiles ? Math.round((asistidos / habiles) * 100) : null }
-  }, [matriz])
+  }, [filasVisibles])
   // Los domingos no se muestran (se conservan los índices para leer la celda correcta).
   const diasVisibles = useMemo(
     () => (matriz?.dias ?? []).map((d, i) => ({ d, i })).filter(({ d }) => !d.domingo),
@@ -285,11 +297,13 @@ export default function Asistencia() {
         subtitulo="Un día cuenta como asistido cuando el vendedor tiene preventa registrada en el BI."
         accion={
           <div className="flex flex-wrap gap-2">
-            <button onClick={exportar} disabled={exportando || !matriz || matriz.filas.length === 0}
-              title="Descarga lo que ves en pantalla (mismo rango, zona y equipo)"
-              className="btn-primary text-sm">
-              <Download size={15} /> {exportando ? 'Generando…' : 'Exportar a Excel'}
-            </button>
+            {puede('asistencia.exportar') && (
+              <button onClick={exportar} disabled={exportando || !matriz || filasVisibles.length === 0}
+                title="Descarga lo que ves en pantalla (mismo rango, zona, equipo y búsqueda)"
+                className="btn-primary text-sm">
+                <Download size={15} /> {exportando ? 'Generando…' : 'Exportar a Excel'}
+              </button>
+            )}
             <button onClick={() => setVerFeriados(true)} className="btn-primary bg-white text-sm text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50 focus:ring-brand-500!">
               <CalendarDays size={15} /> Feriados
             </button>
@@ -313,10 +327,14 @@ export default function Asistencia() {
             {equipos.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
           </select>
         </div>
+        <div className="w-full sm:w-64">
+          <label className={labelCls}>Buscar vendedor</label>
+          <Buscador valor={q} onChange={setQ} placeholder="Nombre, código o equipo…" />
+        </div>
         <div className="ml-auto text-right text-sm text-slate-500">
           <p className="font-medium text-slate-700">Del {fmt(desde)} al {fmt(hasta)}</p>
           <p>
-            {totales.vendedores} vendedores{totales.pct !== null && <> · asistencia promedio <span className="font-semibold text-slate-700">{totales.pct}%</span></>}
+            {totales.vendedores}{q.trim() && matriz ? ` de ${matriz.filas.length}` : ''} vendedores{totales.pct !== null && <> · asistencia promedio <span className="font-semibold text-slate-700">{totales.pct}%</span></>}
           </p>
         </div>
       </div>
@@ -359,8 +377,9 @@ export default function Asistencia() {
 
       {error && <div className="mb-4"><ErrorBox>{error}</ErrorBox></div>}
 
-      <div className="card overflow-auto" style={{ maxHeight: 'calc(100vh - 20rem)' }}>
-        {loading && !matriz && <p className="p-10 text-center text-sm text-slate-400">Cargando…</p>}
+      <div className={`card relative overflow-auto transition-opacity duration-200 ${loading && matriz ? 'opacity-60' : ''}`} style={{ maxHeight: 'calc(100vh - 20rem)' }}>
+        <BarraCarga activa={loading} />
+        {loading && !matriz && <Esqueleto filas={10} columnas={9} />}
         {matriz && (
           <table className="border-separate border-spacing-0 text-sm" style={{ minWidth: 'max-content' }}>
             <thead>
@@ -390,10 +409,10 @@ export default function Asistencia() {
               </tr>
             </thead>
             <tbody>
-              {matriz.filas.length === 0 && (
-                <tr><td colSpan={8 + diasVisibles.length} className="px-4 py-10 text-center text-slate-400">No hay vendedores con contrato en esta gestión</td></tr>
+              {filasVisibles.length === 0 && (
+                <tr><td colSpan={8 + diasVisibles.length} className="px-4 py-10 text-center text-slate-400">{q.trim() && matriz.filas.length > 0 ? `Ningún vendedor coincide con «${q.trim()}»` : 'No hay vendedores con contrato en esta gestión'}</td></tr>
               )}
-              {matriz.filas.map((f) => {
+              {filasVisibles.map((f) => {
                 const pct = f.habiles ? Math.round((f.asistidos / f.habiles) * 100) : null
                 return (
                   <tr key={f.vendedor_id} className="group">

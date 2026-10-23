@@ -1,18 +1,22 @@
-import { AtSign, Check, History, KeyRound, LockOpen, LogOut, Pencil, Plus, Search, ShieldCheck, Trash2, UserCheck } from 'lucide-react'
+import { AtSign, Check, History, KeyRound, LockOpen, LogOut, Pencil, Plus, Search, ShieldCheck, ShieldPlus, Trash2, UserCheck } from 'lucide-react'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
 import { api } from '../api'
+import { BarraCarga, Esqueleto } from '../components/Cargando'
+import { PermisosDeUsuario, RolesYPermisos } from '../components/usuarios/Permisos'
+import SelectorAlcance, { textoAlcance, type Alcance } from '../components/usuarios/SelectorAlcance'
 import { useAuth } from '../auth'
 import {
   Avatar, ErrorBox, Fortaleza, MIN_PASSWORD, Modal, PageHeader, PasswordInput,
   ROL_LABEL, Toast, alEscribirMayus, labelCls, problemaClave, type ToastData,
 } from '../components/ui'
-import type { EventoAuditoria, Rol, Usuario } from '../types'
+import type { EventoAuditoria, Regional, Rol, Usuario } from '../types'
 
 const ROLES = Object.entries(ROL_LABEL) as [Rol, string][]
 
 const ROL_COLOR: Record<Rol, string> = {
   admin: 'bg-purple-100 text-purple-700',
+  jefe_rrhh: 'bg-emerald-100 text-emerald-700',
   dh: 'bg-brand-100 text-brand-700',
   analista_dh: 'bg-cyan-100 text-cyan-700',
   lector: 'bg-slate-100 text-slate-600',
@@ -108,8 +112,9 @@ function Bitacora({ onClose }: { onClose: () => void }) {
 
 // ── Nuevo usuario ────────────────────────────────────────────────────────────
 
-function FormNuevo({ onDone, onClose }: { onDone: (u: Usuario) => void; onClose: () => void }) {
+function FormNuevo({ onDone, onClose, estructura }: { onDone: (u: Usuario) => void; onClose: () => void; estructura: Regional[] }) {
   const [f, setF] = useState({ username: '', nombre: '', email: '', rol: 'lector' as Rol, password: '', confirm: '' })
+  const [alcance, setAlcance] = useState<Alcance>({ todas: true, regionales: [] })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }))
@@ -120,11 +125,13 @@ function FormNuevo({ onDone, onClose }: { onDone: (u: Usuario) => void; onClose:
     const problema = problemaClave(f.password, f.username)
     if (problema) return setError(problema)
     if (f.password !== f.confirm) return setError('Las contraseñas no coinciden.')
+    if (f.rol !== 'admin' && !alcance.todas && alcance.regionales.length === 0) return setError('Elige al menos una regional, o marca «Nacional».')
     setBusy(true)
     try {
       onDone(await api.crearUsuario({
         username: f.username, nombre: f.nombre.trim(), email: f.email.trim() || undefined,
         rol: f.rol, password: f.password,
+        todas_regionales: f.rol === 'admin' ? true : alcance.todas, regionales: f.rol === 'admin' || alcance.todas ? [] : alcance.regionales,
       }))
     } catch (err) {
       setError((err as Error).message)
@@ -160,6 +167,11 @@ function FormNuevo({ onDone, onClose }: { onDone: (u: Usuario) => void; onClose:
             </select>
           </div>
         </div>
+        {f.rol === 'admin' ? (
+          <p className="rounded-xl bg-slate-50 px-3 py-2.5 text-xs text-slate-500">El administrador siempre ve todo el país (alcance nacional).</p>
+        ) : (
+          <SelectorAlcance valor={alcance} onChange={(a) => { setAlcance(a); setError('') }} estructura={estructura} />
+        )}
         <div>
           <label className={labelCls}>Contraseña</label>
           <PasswordInput value={f.password} onChange={(v) => set('password', v)} placeholder={`Mínimo ${MIN_PASSWORD} caracteres, con letras y números`} />
@@ -182,11 +194,12 @@ function FormNuevo({ onDone, onClose }: { onDone: (u: Usuario) => void; onClose:
 
 // ── Editar usuario ───────────────────────────────────────────────────────────
 
-type Tab = 'datos' | 'contrasena' | 'seguridad'
+type Tab = 'datos' | 'permisos' | 'contrasena' | 'seguridad'
 
 function FormEditar({
-  u, onClose, onSaved, onDeleted, onToast,
+  u, onClose, onSaved, onDeleted, onToast, estructura,
 }: {
+  estructura: Regional[]
   u: Usuario
   onClose: () => void
   onSaved: (u: Usuario) => void
@@ -195,6 +208,7 @@ function FormEditar({
 }) {
   const [tab, setTab] = useState<Tab>('datos')
   const [d, setD] = useState({ username: u.username, nombre: u.nombre, email: u.email ?? '', rol: u.rol, activo: u.activo })
+  const [alcance, setAlcance] = useState<Alcance>({ todas: u.todas_regionales, regionales: u.regionales })
   const [pwd, setPwd] = useState({ nueva: '', confirm: '' })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -224,9 +238,13 @@ function FormEditar({
 
   const guardarDatos = async () => {
     setError('')
+    if (d.rol !== 'admin' && !alcance.todas && alcance.regionales.length === 0) return setError('Elige al menos una regional, o marca «Nacional».')
     setBusy(true)
     try {
-      onSaved(await api.actualizarUsuario(u.id, { ...d, nombre: d.nombre.trim(), email: d.email.trim() }))
+      onSaved(await api.actualizarUsuario(u.id, {
+        ...d, nombre: d.nombre.trim(), email: d.email.trim(),
+        todas_regionales: d.rol === 'admin' ? true : alcance.todas, regionales: d.rol === 'admin' || alcance.todas ? [] : alcance.regionales,
+      }))
       onToast({ msg: 'Datos actualizados correctamente.', type: 'ok' })
       onClose()
     } catch (err) {
@@ -270,6 +288,7 @@ function FormEditar({
 
   const tabs = [
     { id: 'datos', label: 'Datos', icon: UserCheck },
+    { id: 'permisos', label: 'Permisos', icon: ShieldPlus },
     { id: 'contrasena', label: 'Contraseña', icon: KeyRound },
     { id: 'seguridad', label: 'Seguridad', icon: ShieldCheck },
   ] as const
@@ -323,6 +342,11 @@ function FormEditar({
               {ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
           </div>
+          {d.rol === 'admin' ? (
+            <p className="rounded-xl bg-slate-50 px-3 py-2.5 text-xs text-slate-500">El administrador siempre ve todo el país (alcance nacional).</p>
+          ) : (
+            <SelectorAlcance valor={alcance} onChange={(a) => { setAlcance(a); setError('') }} estructura={estructura} />
+          )}
           <label className="flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 px-4 py-3">
             <span>
               <span className="block text-sm font-medium text-slate-700">Cuenta activa</span>
@@ -350,6 +374,10 @@ function FormEditar({
               invalido={!!pwd.confirm && pwd.confirm !== pwd.nueva} />
           </div>
         </div>
+      )}
+
+      {tab === 'permisos' && (
+        <PermisosDeUsuario u={u} onToast={(msg) => onToast({ msg, type: 'ok' })} onGuardado={() => onSaved({ ...u })} />
       )}
 
       {tab === 'seguridad' && (
@@ -433,16 +461,19 @@ export default function Usuarios() {
   const [estado, setEstado] = useState('')
   const [nuevo, setNuevo] = useState(false)
   const [bitacora, setBitacora] = useState(false)
+  const [roles, setRoles] = useState(false)
+  const [estructura, setEstructura] = useState<Regional[]>([])
   const [editando, setEditando] = useState<Usuario | null>(null)
   const [toast, setToast] = useState<ToastData | null>(null)
   const limpiarToast = useCallback(() => setToast(null), [])
 
   useEffect(() => {
     if (user?.rol !== 'admin') return
+    api.estructura().then(setEstructura).catch(() => setEstructura([]))
     api.usuarios().then(setUsuarios).catch((e) => setError(e.message)).finally(() => setLoading(false))
   }, [user])
 
-  if (user?.rol !== 'admin') return <Navigate to="/vendedores" replace />
+  if (user?.rol !== 'admin') return <Navigate to="/" replace />
 
   const filtrados = usuarios.filter((u) => {
     const texto = `${u.nombre} ${u.username} ${u.email ?? ''}`.toLowerCase()
@@ -458,9 +489,12 @@ export default function Usuarios() {
       <Toast toast={toast} onDone={limpiarToast} />
       <PageHeader
         titulo="Gestión de usuarios"
-        subtitulo="Quién puede ingresar al sistema y qué puede hacer."
+        subtitulo="Quién puede ingresar al sistema y qué puede hacer con cada panel."
         accion={
           <div className="flex flex-wrap gap-2">
+            <button onClick={() => setRoles(true)} className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
+              <ShieldPlus size={16} /> Roles y permisos
+            </button>
             <button onClick={() => setBitacora(true)} className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
               <History size={16} /> Bitácora
             </button>
@@ -487,12 +521,14 @@ export default function Usuarios() {
 
       {error && <div className="mb-4"><ErrorBox>{error}</ErrorBox></div>}
 
-      <div className="card overflow-x-auto">
+      <div className={`card relative overflow-x-auto transition-opacity duration-200 ${loading && usuarios.length > 0 ? 'opacity-60' : ''}`}>
+        <BarraCarga activa={loading} />
         <table className="tbl">
           <thead>
             <tr>
               <th>Usuario</th>
               <th>Rol</th>
+              <th className="hidden md:table-cell">Alcance</th>
               <th className="hidden xl:table-cell">Correo</th>
               <th className="text-center">Estado</th>
               <th className="hidden lg:table-cell">Última sesión</th>
@@ -500,8 +536,8 @@ export default function Usuarios() {
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={6} className="empty">Cargando usuarios…</td></tr>}
-            {!loading && filtrados.length === 0 && <tr><td colSpan={6} className="empty">No se encontraron usuarios</td></tr>}
+            {loading && usuarios.length === 0 && <tr><td colSpan={7} className="p-0"><Esqueleto filas={5} columnas={5} /></td></tr>}
+            {!loading && filtrados.length === 0 && <tr><td colSpan={7} className="empty">No se encontraron usuarios</td></tr>}
             {filtrados.map((u) => (
               <tr key={u.id}>
                 <td>
@@ -516,6 +552,7 @@ export default function Usuarios() {
                   </div>
                 </td>
                 <td><span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${ROL_COLOR[u.rol]}`}>{ROL_LABEL[u.rol]}</span></td>
+                <td className="hidden text-xs text-slate-500 md:table-cell">{textoAlcance({ todas: u.todas_regionales, regionales: u.regionales }, estructura)}</td>
                 <td className="hidden max-w-48 truncate text-slate-500 xl:table-cell">{u.email || <span className="text-slate-300">—</span>}</td>
                 <td className="text-center">
                   <span className={u.activo ? 'badge-ok' : 'badge-off'}>{u.activo ? 'Activo' : 'Inactivo'}</span>
@@ -542,8 +579,10 @@ export default function Usuarios() {
       </div>
 
       {bitacora && <Bitacora onClose={() => setBitacora(false)} />}
+      {roles && <RolesYPermisos onClose={() => setRoles(false)} onToast={(msg) => setToast({ msg, type: 'ok' })} />}
       {nuevo && (
         <FormNuevo
+          estructura={estructura}
           onClose={() => setNuevo(false)}
           onDone={(u) => {
             setUsuarios((us) => [...us, u])
@@ -555,6 +594,7 @@ export default function Usuarios() {
       {editando && (
         <FormEditar
           u={editando}
+          estructura={estructura}
           onClose={() => setEditando(null)}
           onSaved={(n) => setUsuarios((us) => us.map((x) => (x.id === n.id ? n : x)))}
           onDeleted={(id) => { setUsuarios((us) => us.filter((x) => x.id !== id)); setEditando(null) }}

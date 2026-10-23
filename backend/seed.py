@@ -41,6 +41,10 @@ if settings.es_produccion:
 
 Base.metadata.create_all(engine)
 
+# El tipo enumerado «rol» de PostgreSQL no se amplía solo: cada rol nuevo se agrega aquí (fuera de una transacción).
+with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+    conn.execute(text("ALTER TYPE rol ADD VALUE IF NOT EXISTS 'jefe_rrhh'"))
+
 # create_all no agrega columnas a tablas que ya existen: migraciones ligeras para bases anteriores.
 with engine.begin() as conn:
     conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS email VARCHAR(120)"))
@@ -52,6 +56,7 @@ with engine.begin() as conn:
     conn.execute(text("ALTER TABLE vendedores ADD COLUMN IF NOT EXISTS carpeta_contratos VARCHAR(200)"))
     conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS debe_cambiar_clave BOOLEAN NOT NULL DEFAULT false"))
     conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS sesiones_desde TIMESTAMP"))
+    conn.execute(text("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS todas_regionales BOOLEAN NOT NULL DEFAULT true"))
     conn.execute(text("DROP TABLE IF EXISTS contrato_documentos"))  # versión anterior: ahora se lee la carpeta directamente
 
 with SessionLocal() as db:

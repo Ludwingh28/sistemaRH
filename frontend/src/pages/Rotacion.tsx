@@ -1,3 +1,4 @@
+import { BarraCarga, Esqueleto, EsqueletoTarjetas } from '../components/Cargando'
 import { Info } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { api } from '../api'
@@ -110,7 +111,8 @@ export default function Rotacion() {
 
       {/* Mientras recarga se conserva lo anterior, atenuado */}
       {datos && t && (
-        <div className={`transition-opacity ${loading ? 'opacity-50' : ''}`}>
+        <div className={`relative transition-opacity duration-200 ${loading ? 'opacity-50' : ''}`}>
+          <BarraCarga activa={loading} />
           <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-[1.4fr_1fr_1fr_1fr_1fr]">
             <div className="card col-span-2 p-5 lg:col-span-1">
               <p className="text-xs text-slate-500">Rotación del período</p>
@@ -266,7 +268,12 @@ export default function Rotacion() {
           </details>
         </div>
       )}
-      {!datos && loading && <p className="p-10 text-center text-sm text-slate-400">Cargando…</p>}
+      {!datos && loading && (
+        <div className="space-y-4">
+          <EsqueletoTarjetas n={5} />
+          <div className="card"><Esqueleto filas={6} columnas={6} /></div>
+        </div>
+      )}
     </div>
   )
 }

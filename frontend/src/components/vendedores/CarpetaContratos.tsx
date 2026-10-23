@@ -72,7 +72,7 @@ export default function CarpetaContratos({ onClose, onCambio }: { onClose: () =>
         )}
 
         <div className="text-xs text-slate-500">
-          <p>Estructura: <span className="font-mono">Vendedores\NOMBRE DEL VENDEDOR\Contratos\</span> con los archivos de sus contratos dentro. Cada vendedor nuevo recibe su carpeta al registrarlo.</p>
+          <p>Estructura: <span className="font-mono">REGIONAL\Vendedores\NOMBRE DEL VENDEDOR\Contratos\</span> (por ejemplo <span className="font-mono">Santa Cruz\Vendedores\JUAN PEREZ\Contratos\</span>) con los archivos de sus contratos dentro. Cada vendedor nuevo recibe su carpeta al registrarlo y, si se abre una regional nueva, su carpeta se crea sola.</p>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -86,7 +86,7 @@ export default function CarpetaContratos({ onClose, onCambio }: { onClose: () =>
 
         {resultado && (
           <p className="rounded-xl border border-slate-200 px-4 py-3">
-            <b>{resultado.creadas}</b> carpetas creadas · {resultado.vinculadas} ya existían (se reconocieron por el nombre)
+            <b>{resultado.creadas}</b> carpetas creadas · {resultado.vinculadas} ya existían (se reconocieron por el nombre) · {resultado.subcarpetas} subcarpetas de documentos (Kardex, CI, Fachada, Ubicación…) creadas
             {resultado.errores.length > 0 && <span className="block text-red-600">{resultado.errores[0]}</span>}
           </p>
         )}
@@ -99,7 +99,7 @@ export default function CarpetaContratos({ onClose, onCambio }: { onClose: () =>
               <ul className="space-y-2">
                 {revision.sin_vendedor.map((c) => (
                   <li key={c.carpeta} className="rounded-xl border border-slate-200 p-3">
-                    <p className="font-mono text-xs">{c.carpeta}</p>
+                    <p className="font-mono text-xs">{c.carpeta.replace('/', ' \\ ')}</p>
                     {c.sugerencias.length > 0 ? (
                       c.sugerencias.map((s) => (
                         <button key={s.id} disabled={busy} onClick={() => vincular(c.carpeta, s.id)}

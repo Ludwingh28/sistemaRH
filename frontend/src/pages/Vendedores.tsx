@@ -1,11 +1,13 @@
-import { FileText, Plus, RefreshCw, Search } from 'lucide-react'
+import { FileSpreadsheet, FileText, Plus, RefreshCw, Search } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useAuth } from '../auth'
 import { Toast, PageHeader, ErrorBox, type ToastData } from '../components/ui'
+import { BarraCarga, Esqueleto } from '../components/Cargando'
 import CarpetaContratos from '../components/vendedores/CarpetaContratos'
 import DetalleVendedor from '../components/vendedores/DetalleVendedor'
 import FormAlta from '../components/vendedores/FormAlta'
+import ImportarExcel from '../components/vendedores/ImportarExcel'
 import { fmt } from '../format'
 import type { Regional, ResumenVendedores, Vendedor } from '../types'
 
@@ -34,8 +36,9 @@ function Vencimiento({ v }: { v: Vendedor }) {
 }
 
 export default function Vendedores() {
-  const { puedeEscribir, user } = useAuth()
+  const { puede } = useAuth()
   const [carpeta, setCarpeta] = useState(false)
+  const [importar, setImportar] = useState(false)
   const [estructura, setEstructura] = useState<Regional[]>([])
   const [lista, setLista] = useState<Vendedor[]>([])
   const [resumen, setResumen] = useState<ResumenVendedores | null>(null)
@@ -96,16 +99,23 @@ export default function Vendedores() {
         titulo="Vendedores"
         subtitulo="Gestión de colaboradores y de sus contratos."
         accion={
-          puedeEscribir && (
+          (puede('carpetas.administrar') || puede('vendedores.importar') || puede('vendedores.crear')) && (
             <div className="flex flex-wrap gap-2">
-              {user?.rol === 'admin' && (
+              {puede('carpetas.administrar') && (
                 <button onClick={() => setCarpeta(true)} className="btn-primary bg-white text-sm text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50 focus:ring-brand-500!">
                   <FileText size={15} /> Carpetas de contratos
                 </button>
               )}
-              <button onClick={() => setAlta(true)} className="btn-primary text-sm">
-                <Plus size={16} /> Nuevo vendedor
-              </button>
+              {puede('vendedores.importar') && (
+                <button onClick={() => setImportar(true)} className="btn-primary bg-white text-sm text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50 focus:ring-brand-500!">
+                  <FileSpreadsheet size={15} /> Importar Excel
+                </button>
+              )}
+              {puede('vendedores.crear') && (
+                <button onClick={() => setAlta(true)} className="btn-primary text-sm">
+                  <Plus size={16} /> Nuevo vendedor
+                </button>
+              )}
             </div>
           )
         }
@@ -149,7 +159,8 @@ export default function Vendedores() {
 
       {error && <div className="mb-4"><ErrorBox>{error}</ErrorBox></div>}
 
-      <div className="card overflow-x-auto">
+      <div className={`card relative overflow-x-auto transition-opacity duration-200 ${loading && lista.length > 0 ? 'opacity-60' : ''}`}>
+        <BarraCarga activa={loading} />
         <table className="tbl">
           <thead>
             <tr>
@@ -160,11 +171,11 @@ export default function Vendedores() {
               <th>Contrato actual</th>
               <th>Vencimiento</th>
               <th>Estado</th>
-              {puedeEscribir && <th />}
+              {puede('contratos.gestionar') && <th />}
             </tr>
           </thead>
           <tbody>
-            {loading && lista.length === 0 && <tr><td colSpan={8} className="empty">Cargando…</td></tr>}
+            {loading && lista.length === 0 && <tr><td colSpan={8} className="p-0"><Esqueleto filas={8} columnas={6} /></td></tr>}
             {!loading && lista.length === 0 && <tr><td colSpan={8} className="empty">No hay vendedores para mostrar</td></tr>}
             {lista.map((v) => (
               <tr key={v.id} onClick={() => abrir(v)} className="cursor-pointer">
@@ -201,7 +212,7 @@ export default function Vendedores() {
                     <span className="badge-ok">Activo</span>
                   )}
                 </td>
-                {puedeEscribir && (
+                {puede('contratos.gestionar') && (
                   <td className="whitespace-nowrap text-right" onClick={(e) => e.stopPropagation()}>
                     {v.vigente && (
                       <button onClick={() => abrir(v)} title="Renovar contrato" className="icon-btn hover:text-brand-600">
@@ -221,6 +232,16 @@ export default function Vendedores() {
         )}
       </div>
 
+      {importar && (
+        <ImportarExcel
+          onClose={() => setImportar(false)}
+          onListo={(msg) => {
+            setImportar(false)
+            setToast({ msg, type: 'ok' })
+            cargar()
+          }}
+        />
+      )}
       {carpeta && <CarpetaContratos onClose={() => setCarpeta(false)} onCambio={cargar} />}
       {alta && (
         <FormAlta
@@ -242,7 +263,6 @@ export default function Vendedores() {
           id={detalle.id}
           tabInicial={detalle.tab}
           estructura={estructura}
-          puedeEscribir={puedeEscribir}
           onClose={() => setDetalle(null)}
           onChanged={cargar}
           onToast={setToast}

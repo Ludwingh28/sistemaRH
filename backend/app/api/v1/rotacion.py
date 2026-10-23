@@ -21,12 +21,13 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from app.api.deps import usuario_actual
+from app.api.deps import requiere_permiso
 from app.api.v1.asistencia import construir_matriz
+from app.core.alcance import alcance_de
 from app.core.database import get_db
 from app.models import EquipoDTS, Vendedor
 
-router = APIRouter(prefix="/rotacion", tags=["rotacion"], dependencies=[Depends(usuario_actual)])
+router = APIRouter(prefix="/rotacion", tags=["rotacion"], dependencies=[Depends(requiere_permiso("rotacion.ver"))])
 
 MAX_DIAS = 366
 MAX_DIAS_AUSENTISMO = 93  # la matriz de asistencia consulta el BI día por día
@@ -138,7 +139,8 @@ def rotacion(
     db: Session = Depends(get_db),
 ):
     desde, hasta = _rango(desde, hasta)
-    consulta = select(Vendedor).options(joinedload(Vendedor.equipo).joinedload(EquipoDTS.regional))
+    alcance = alcance_de(db)
+    consulta = alcance.filtrar(select(Vendedor).options(joinedload(Vendedor.equipo).joinedload(EquipoDTS.regional)))
     if equipo_id:
         consulta = consulta.where(Vendedor.equipo_id == equipo_id)
     if regional_id:
@@ -148,6 +150,8 @@ def rotacion(
     # Totales y por equipo
     total = _grupo("Total", vendedores, desde, hasta)
     equipos_q = select(EquipoDTS).options(joinedload(EquipoDTS.regional))
+    if alcance.ids is not None:
+        equipos_q = equipos_q.where(EquipoDTS.regional_id.in_(alcance.ids))
     if equipo_id:
         equipos_q = equipos_q.where(EquipoDTS.id == equipo_id)
     if regional_id:

@@ -7,11 +7,11 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
-from app.api.v1 import asistencia, auth, documentos, estructura, rotacion, vendedores
+from app.api.v1 import asistencia, auth, documentacion, documentos, estructura, permisos, rotacion, vendedores
 from app.core.config import settings
 from app.core.database import engine
 
-VERSION = "0.0.0.2"
+VERSION = "0.0.0.4"
 log = logging.getLogger("rh")
 
 PROD = settings.es_produccion
@@ -66,11 +66,13 @@ async def cabeceras_de_seguridad(request: Request, call_next):
 
 
 app.include_router(auth.router, prefix="/api/v1")
+app.include_router(permisos.router, prefix="/api/v1")
 app.include_router(vendedores.router, prefix="/api/v1")
 app.include_router(estructura.router, prefix="/api/v1")
 app.include_router(asistencia.router, prefix="/api/v1")
 app.include_router(rotacion.router, prefix="/api/v1")
 app.include_router(documentos.router, prefix="/api/v1")
+app.include_router(documentacion.router, prefix="/api/v1")
 
 
 @app.get("/api/health", include_in_schema=False)
