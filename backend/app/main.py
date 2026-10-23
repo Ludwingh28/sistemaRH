@@ -11,7 +11,7 @@ from app.api.v1 import asistencia, auth, documentacion, documentos, estructura, 
 from app.core.config import settings
 from app.core.database import engine
 
-VERSION = "0.0.0.4"
+VERSION = "1.0.0.0"
 log = logging.getLogger("rh")
 
 PROD = settings.es_produccion

@@ -272,6 +272,32 @@ git pull
 
 Tu `backend\.env` no se toca con `git pull` (no está en el repositorio).
 
+### Actualización completa (por ejemplo de 0.0.0.1 a 1.0.0.0)
+
+Cuando cambian tanto el código como la base de datos, haz siempre este orden (el mismo sirve para cualquier versión):
+
+```cmd
+:: 1) Respaldo (sección 12): base sistema_rh y copia de backend\.env
+:: 2) Traer la versión nueva
+cd C:\inetpub\cruzimex\SistemaRH
+git pull
+
+:: 3) Detener el backend (el BI y Nginx siguen funcionando)
+pm2 stop sistema-rh
+
+:: 4) Dependencias de Python y compilación del frontend
+powershell -ExecutionPolicy Bypass -File .\deploy\windows\construir.ps1
+
+:: 5) Actualizar la base de datos (agrega columnas/tablas/roles nuevos sin tocar los datos) y revisar
+powershell -ExecutionPolicy Bypass -File .\deploy\windows\preparar-base.ps1
+
+:: 6) Iniciar y comprobar
+pm2 start sistema-rh
+curl http://127.0.0.1:8100/api/health
+```
+
+El `curl` debe mostrar la versión nueva (`"version":"1.0.0.0"`). Las sesiones abiertas se cierran al actualizar: cada persona vuelve a ingresar con su clave. Para volver atrás: `git checkout <commit anterior>`, `construir.ps1` y `pm2 restart sistema-rh` (las columnas nuevas de la base no estorban a la versión anterior).
+
 ---
 
 ## 12. Respaldos
