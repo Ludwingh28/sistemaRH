@@ -114,6 +114,10 @@ class VendedorBaja(BaseModel):
     motivo_baja: MayusOpt = None
 
 
+class VendedorReactivar(BaseModel):
+    nota: MayusOpt = None  # por qué se anula la baja (queda en el historial)
+
+
 class VendedorOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -5,6 +5,13 @@ Los cambios visibles para el usuario final están en `frontend/src/changelog.ts`
 
 Formato de versión: `mayor.menor.parche.build`.
 
+## [1.1.1.0] — 2026-11-05
+
+- **Anular una baja** (`POST /vendedores/{id}/reactivar`, solo administrador: `requiere()` sin roles): limpia `fecha_baja` y `motivo_baja`, registra el evento `reactivacion` en el historial (usuario, fecha de hoy, baja anulada, motivo registrado y nota opcional). Los contratos no se tocan: el estado «retirado» se deriva de `fecha_baja`, así que al limpiarla vuelve a vigente/por vencer (o vencido si su fecha fin ya pasó). Responde 409 si el vendedor no está de baja; 403 a cualquier rol que no sea admin. Se puede volver a dar de baja después.
+- Frontend: botón «Anular la baja» en la ficha de un vendedor retirado (solo se muestra al administrador), con nota opcional; el historial muestra «Baja anulada» y «Cambio de código».
+- **Importación del Excel:** si el Excel de RRHH sigue marcando a ese vendedor como retirado, la próxima importación volvería a registrar la baja. Hay que corregir el Excel.
+- **Actualizar:** `git pull` → `npm run build` en `frontend` → `pm2 restart sistema-rh`. Sin cambios en la base.
+
 ## [1.1.0.0] — 2026-11-03
 
 - **Más documentos en el panel «Documentación»** (`carpetas.CATEGORIAS` / `DOCUMENTACION`): se suman Hoja de vida (`Hoja de vida`), Antecedentes FELCC (`Antecedentes FELCC`), Factura de luz/agua (`Factura luz-agua`, sin «/» porque Windows no lo permite), Cuenta bancaria (`Cuenta bancaria`), SUS (`SUS`) y Acta de entrega (`Acta de entrega`), todos en PDF. El contrato entra como columna (cuenta si hay algún PDF en `Contratos`). Orden de columnas: Kardex, CI, CV, FELCC, Luz/Agua, Ubicación, Fachada, Cuenta, SUS, Acta, Contrato. CI se conserva (ya tenía archivos subidos).

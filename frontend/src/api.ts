@@ -166,6 +166,7 @@ export const api = {
     vence_en?: number
   }) => request<Vendedor[]>(`/vendedores${qs(f)}`),
   resumenVendedores: () => request<ResumenVendedores>('/vendedores/resumen'),
+  anularBaja: (id: number, nota: string) => request<VendedorDetalle>(`/vendedores/${id}/reactivar`, json('POST', { nota: nota || null })),
   motivosBaja: () => request<string[]>('/vendedores/motivos-baja'),
   vendedor: (id: number) => request<VendedorDetalle>(`/vendedores/${id}`),
   crearVendedor: (data: VendedorCrear) => request<VendedorDetalle>('/vendedores', json('POST', data)),

@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app import schemas
-from app.api.deps import requiere_permiso
+from app.api.deps import requiere, requiere_permiso
 from app.core.alcance import alcance_de
 from app.core.database import get_db
 from app.models import Contrato, EquipoDTS, HistorialVendedor, Vendedor
@@ -322,6 +322,25 @@ def dar_de_baja(
         raise HTTPException(422, f"Tiene contratos que empiezan después de esa fecha ({nums}). Elimínalos primero.")
     v.fecha_baja, v.motivo_baja = data.fecha_baja, (data.motivo_baja or "").strip() or None
     _evento(db, v, "baja", data.fecha_baja, v.motivo_baja, user.username)
+    db.commit()
+    return _detalle(_get(db, vendedor_id))
+
+
+@router.post("/{vendedor_id}/reactivar", response_model=schemas.VendedorDetalle)
+def anular_baja(
+    vendedor_id: int, data: schemas.VendedorReactivar | None = None, db: Session = Depends(get_db), user=Depends(requiere())
+):
+    """Anula una baja registrada por error (p. ej. faltó 3 días, lo dieron de baja y volvió a trabajar). SOLO el administrador.
+    Quita la fecha y el motivo de la baja: el vendedor vuelve a figurar vigente y su contrato deja de verse «retirado».
+    Los contratos no se tocan (conservan sus fechas), así que si ya había vencido seguirá figurando vencido hasta renovarlo."""
+    v = _get(db, vendedor_id)
+    if not v.fecha_baja:
+        raise HTTPException(409, "El vendedor no está dado de baja")
+    detalle = f"Baja del {v.fecha_baja:%d/%m/%Y} anulada" + (f" (motivo registrado: {v.motivo_baja})" if v.motivo_baja else "")
+    if data and data.nota:
+        detalle += f". {data.nota}"
+    v.fecha_baja, v.motivo_baja = None, None
+    _evento(db, v, "reactivacion", date.today(), detalle[:255], user.username)
     db.commit()
     return _detalle(_get(db, vendedor_id))
 

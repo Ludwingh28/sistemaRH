@@ -10,9 +10,17 @@ export interface Version {
   correcciones: string[]
 }
 
-export const VERSION_ACTUAL = '1.1.0.0'
+export const VERSION_ACTUAL = '1.1.1.0'
 
 export const changelog: Version[] = [
+  {
+    version: '1.1.1.0',
+    fecha: '2026-11-05',
+    novedades: [
+      'Anular una baja: si a un vendedor se le registró la baja por error (por ejemplo faltó unos días y volvió a trabajar), el administrador puede abrir su ficha y pulsar «Anular la baja». Se borran la fecha y el motivo de la baja, el vendedor vuelve a figurar vigente y su contrato deja de verse como retirado. Los contratos no se modifican. Queda registrado en su historial con tu usuario y una nota opcional.',
+    ],
+    correcciones: [],
+  },
   {
     version: '1.1.0.0',
     fecha: '2026-11-03',

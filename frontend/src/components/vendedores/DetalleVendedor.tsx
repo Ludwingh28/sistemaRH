@@ -26,6 +26,8 @@ const EVENTO: Record<string, string> = {
   contrato_eliminado: 'Contrato eliminado',
   cambio_equipo: 'Cambio de equipo',
   baja: 'Baja',
+  reactivacion: 'Baja anulada',
+  cambio_codigo: 'Cambio de código',
 }
 
 // ── Contrato (renovar / agregar anterior / editar) ───────────────────────────
@@ -193,6 +195,45 @@ function FormBaja({
   )
 }
 
+function FormReactivar({ det, onClose, onDone }: { det: VendedorDetalle; onClose: () => void; onDone: (d: VendedorDetalle) => void }) {
+  const [nota, setNota] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setBusy(true)
+    try {
+      onDone(await api.anularBaja(det.id, nota.trim()))
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal titulo={`Anular la baja de ${det.nombre}`} onClose={onClose}>
+      <form onSubmit={submit} className="space-y-4">
+        <p className="rounded-xl bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
+          Estaba dado de baja el {fmt(det.fecha_baja)}{det.motivo_baja ? ` por «${det.motivo_baja}»` : ''}. Al anularla se borran la fecha y el motivo de la baja y vuelve a figurar vigente, con su contrato.
+          Los contratos no se modifican: si el actual ya venció, seguirá figurando vencido hasta renovarlo.
+        </p>
+        <div>
+          <label className={labelCls}>Nota (opcional)</label>
+          <input className="input-field mayus" placeholder="Por qué se anula, p. ej. SE PRESENTÓ A TRABAJAR" value={nota} onChange={alEscribirMayus(setNota)} maxLength={150} />
+          <p className="mt-1 text-xs text-slate-400">Queda guardada en su historial junto con tu usuario y la fecha de hoy.</p>
+        </div>
+        {error && <ErrorBox>{error}</ErrorBox>}
+        <button disabled={busy} className="btn-primary w-full text-sm">
+          <UserCheck size={15} /> {busy ? 'Guardando…' : 'Anular la baja y reactivar'}
+        </button>
+      </form>
+    </Modal>
+  )
+}
+
 // ── Detalle ──────────────────────────────────────────────────────────────────
 
 type Tab = 'datos' | 'contratos' | 'documentos' | 'historial'
@@ -209,7 +250,7 @@ export default function DetalleVendedor({
   onChanged: () => void
   onToast: (t: ToastData) => void
 }) {
-  const { puede } = useAuth()
+  const { puede, user } = useAuth()
   const puedeEditar = puede('vendedores.editar')
   const puedeContratos = puede('contratos.gestionar')
   const [det, setDet] = useState<VendedorDetalle | null>(null)
@@ -219,6 +260,7 @@ export default function DetalleVendedor({
   const [datos, setDatos] = useState<Record<string, string>>({})
   const [modoContrato, setModoContrato] = useState<ModoContrato | null>(null)
   const [baja, setBaja] = useState(false)
+  const [reactivar, setReactivar] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -504,6 +546,11 @@ export default function DetalleVendedor({
                 <UserMinus size={14} /> Dar de baja
               </button>
             )}
+            {user?.rol === 'admin' && !det.vigente && (
+              <button onClick={() => setReactivar(true)} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-emerald-600 transition-colors hover:bg-emerald-50 hover:text-emerald-700">
+                <UserCheck size={14} /> Anular la baja
+              </button>
+            )}
             <div className="ml-auto flex items-center gap-3">
               <button onClick={onClose} className="rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-700">Cerrar</button>
               {tab === 'datos' && puedeEditar && !editando && det.vigente && (
@@ -524,6 +571,12 @@ export default function DetalleVendedor({
       <FormContrato
         det={det} modo={modoContrato} onClose={() => setModoContrato(null)}
         onDone={(d, m) => { setModoContrato(null); aplicar(d, m) }}
+      />
+    )}
+    {reactivar && det && (
+      <FormReactivar
+        det={det} onClose={() => setReactivar(false)}
+        onDone={(d) => { setReactivar(false); aplicar(d, `Se anuló la baja de ${d.nombre}: vuelve a figurar vigente.`) }}
       />
     )}
     {baja && det && (
