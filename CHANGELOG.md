@@ -5,6 +5,15 @@ Los cambios visibles para el usuario final están en `frontend/src/changelog.ts`
 
 Formato de versión: `mayor.menor.parche.build`.
 
+## [1.1.0.0] — 2026-11-03
+
+- **Más documentos en el panel «Documentación»** (`carpetas.CATEGORIAS` / `DOCUMENTACION`): se suman Hoja de vida (`Hoja de vida`), Antecedentes FELCC (`Antecedentes FELCC`), Factura de luz/agua (`Factura luz-agua`, sin «/» porque Windows no lo permite), Cuenta bancaria (`Cuenta bancaria`), SUS (`SUS`) y Acta de entrega (`Acta de entrega`), todos en PDF. El contrato entra como columna (cuenta si hay algún PDF en `Contratos`). Orden de columnas: Kardex, CI, CV, FELCC, Luz/Agua, Ubicación, Fachada, Cuenta, SUS, Acta, Contrato. CI se conserva (ya tenía archivos subidos).
+- **Sin migración ni cambios en la base**: las carpetas y archivos existentes no se tocan. Las subcarpetas nuevas se crean con «Crear las carpetas que faltan» (`POST /documentos/carpetas/crear-faltantes`, alcance nacional) o solas al registrar un vendedor nuevo.
+- Frontend: tarjetas de resumen en 4/6 columnas para las 11 columnas.
+- **Visor de documentos dentro del sistema** (`components/vendedores/Documentos.tsx`): el ojo abre el PDF en un `Modal` con un `iframe` (blob pedido con la sesión, no por enlace público) en lugar de una pestaña nueva. Descargar sigue igual.
+- **Zona de subida**: si el documento (que no sea contrato) ya tiene archivo, se muestra solo el archivo y la zona de «suelta aquí» queda oculta; el enlace «Subir otro archivo» la vuelve a mostrar. En Contratos siempre está (puede haber varios). Versión de la API: 1.1.0.0.
+- **Actualizar:** `git pull` → `construir.ps1` → `pm2 restart sistema-rh` (no hace falta `preparar-base.ps1`). Las subcarpetas nuevas se crean con «Crear las carpetas que faltan».
+
 ## [1.0.0.0] — 2026-10-23 · Versión estable
 
 Primera versión estable. Reúne todo lo desarrollado después de la 0.0.0.1 (la que estaba en producción), que se había ido registrando como 0.0.0.2, 0.0.0.3 y 0.0.0.4 y ahora se publica junta: seguridad de sesión y usuarios, importación del Excel de RRHH, carpetas por regional, permisos por rol y por usuario, alcance regional, panel de documentación, buscadores y animaciones de carga.

@@ -1,8 +1,9 @@
-"""Panel de documentación: qué documentos le faltan entregar a cada vendedor (Kardex, CI, Fachada, Ubicación…).
+"""Panel de documentación: qué documentos le faltan entregar a cada vendedor (Kardex, CV, FELCC, Contrato…).
 
 Un documento figura como entregado SOLO si hay al menos un archivo en su subcarpeta de la carpeta del vendedor
 (`<regional>\\Vendedores\\<nombre>\\<Documento>\\`): aunque exista en físico, debe estar subido al sistema. Por ahora no hay
-forma de marcar un documento como «no aplica» ni como entregado sin archivo: todos deben entregar todo.
+forma de marcar un documento como «no aplica» ni como entregado sin archivo: todos deben entregar todo. El contrato cuenta
+como entregado si hay algún PDF en su carpeta «Contratos».
 """
 from typing import Literal
 

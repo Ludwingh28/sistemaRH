@@ -10,9 +10,22 @@ export interface Version {
   correcciones: string[]
 }
 
-export const VERSION_ACTUAL = '1.0.0.0'
+export const VERSION_ACTUAL = '1.1.0.0'
 
 export const changelog: Version[] = [
+  {
+    version: '1.1.0.0',
+    fecha: '2026-11-03',
+    novedades: [
+      'El panel «Documentación» ahora controla 11 documentos por vendedor: Kardex, CI, Hoja de vida (CV), Antecedentes FELCC, Factura de luz/agua, Ubicación, Fachada, Cuenta bancaria, SUS, Acta de entrega y Contrato.',
+      'Cada documento tiene su propia carpeta dentro de la carpeta del vendedor, igual que los anteriores. Lo que ya estaba subido (Kardex, CI, Fachada, Ubicación y Contratos) sigue exactamente donde estaba y sigue contando como entregado.',
+      'Para que las carpetas nuevas existan en los vendedores que ya tienes, usa una vez «Crear las carpetas que faltan» (Vendedores → Carpetas de contratos, con alcance nacional). Los vendedores nuevos nacen con todas.',
+      'El Contrato también aparece en el panel: figura como entregado si hay algún PDF en la carpeta «Contratos» del vendedor.',
+      'Los documentos se ven dentro del sistema: al tocar el ojo de un archivo se abre el PDF en una ventana grande sobre la misma pantalla, sin abrir otra pestaña. También se puede descargar.',
+      'Cuando un documento ya está subido, la ficha y el panel muestran el archivo y ya no ofrecen la zona de subida; si hace falta agregar otro, hay un enlace «Subir otro archivo».',
+    ],
+    correcciones: [],
+  },
   {
     version: '1.0.0.0',
     fecha: '2026-10-23',

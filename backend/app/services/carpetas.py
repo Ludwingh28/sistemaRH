@@ -29,19 +29,24 @@ log = logging.getLogger("rh.carpetas")
 # Firma (primeros bytes) de cada formato: un «.pdf» debe empezar como PDF.
 FIRMAS = {".pdf": b"%PDF-", ".jpg": b"\xff\xd8\xff", ".jpeg": b"\xff\xd8\xff", ".png": b"\x89PNG", ".docx": b"PK", ".doc": b"\xd0\xcf\x11\xe0"}
 
-# Tipos de documento que se guardan en la carpeta de cada vendedor. Hoy solo contratos, en PDF. Para sumar otro
-# (p. ej. documentos personales) basta agregar una entrada aquí: se crea su subcarpeta junto a «Contratos» y el
-# panel puede mostrarla con <Documentos categoria="..."/>. Lo que RH ya tenga en la carpeta siempre se lista.
+# Tipos de documento que se guardan en la carpeta de cada vendedor, todos en PDF. Para sumar otro basta agregar una
+# entrada aquí: se crea su subcarpeta junto a «Contratos» (botón «Crear las carpetas que faltan») y aparece como
+# columna en el panel «Documentación». Lo que RH ya tenga en una carpeta siempre se lista; nunca se renombra ni se mueve.
 CATEGORIAS: dict[str, dict] = {
-    "contratos": {"titulo": "Contratos firmados", "carpeta": settings.CONTRATOS_CARPETA_FINAL, "extensiones": {".pdf"}, "corto": "Contrato"},
-    # Documentación que cada vendedor debe entregar (panel «Documentación»): una subcarpeta por documento, todos en PDF.
+    "contratos": {"titulo": "Contrato", "carpeta": settings.CONTRATOS_CARPETA_FINAL, "extensiones": {".pdf"}, "corto": "Contrato"},
     "kardex": {"titulo": "Kardex", "carpeta": "Kardex", "extensiones": {".pdf"}, "corto": "Kardex"},
     "ci": {"titulo": "Cédula de identidad (CI)", "carpeta": "CI", "extensiones": {".pdf"}, "corto": "CI"},
-    "fachada": {"titulo": "Fachada", "carpeta": "Fachada", "extensiones": {".pdf"}, "corto": "Fachada"},
+    "cv": {"titulo": "Hoja de vida (CV)", "carpeta": "Hoja de vida", "extensiones": {".pdf"}, "corto": "CV"},
+    "felcc": {"titulo": "Antecedentes FELCC", "carpeta": "Antecedentes FELCC", "extensiones": {".pdf"}, "corto": "FELCC"},
+    "factura": {"titulo": "Factura de luz/agua", "carpeta": "Factura luz-agua", "extensiones": {".pdf"}, "corto": "Luz/Agua"},
     "ubicacion": {"titulo": "Ubicación", "carpeta": "Ubicación", "extensiones": {".pdf"}, "corto": "Ubicación"},
+    "fachada": {"titulo": "Fachada", "carpeta": "Fachada", "extensiones": {".pdf"}, "corto": "Fachada"},
+    "cuenta": {"titulo": "Cuenta bancaria", "carpeta": "Cuenta bancaria", "extensiones": {".pdf"}, "corto": "Cuenta"},
+    "sus": {"titulo": "SUS", "carpeta": "SUS", "extensiones": {".pdf"}, "corto": "SUS"},
+    "acta": {"titulo": "Acta de entrega", "carpeta": "Acta de entrega", "extensiones": {".pdf"}, "corto": "Acta"},
 }
-# Documentos que entran en la matriz del panel (el contrato se gestiona aparte, en la ficha del vendedor)
-DOCUMENTACION = ["kardex", "ci", "fachada", "ubicacion"]
+# Columnas del panel «Documentación», en este orden (el contrato va al final)
+DOCUMENTACION = ["kardex", "ci", "cv", "felcc", "factura", "ubicacion", "fachada", "cuenta", "sus", "acta", "contratos"]
 TIPOS = {".pdf": "application/pdf", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
          ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".doc": "application/msword"}
 CARPETA_ELIMINADOS = "_eliminados"

@@ -296,7 +296,7 @@ pm2 start sistema-rh
 curl http://127.0.0.1:8100/api/health
 ```
 
-El `curl` debe mostrar la versión nueva (`"version":"1.0.0.0"`). Las sesiones abiertas se cierran al actualizar: cada persona vuelve a ingresar con su clave. Para volver atrás: `git checkout <commit anterior>`, `construir.ps1` y `pm2 restart sistema-rh` (las columnas nuevas de la base no estorban a la versión anterior).
+El `curl` debe mostrar la versión nueva (`"version":"1.1.0.0"`). Las sesiones abiertas se cierran al actualizar: cada persona vuelve a ingresar con su clave. Para volver atrás: `git checkout <commit anterior>`, `construir.ps1` y `pm2 restart sistema-rh` (las columnas nuevas de la base no estorban a la versión anterior).
 
 ---
 

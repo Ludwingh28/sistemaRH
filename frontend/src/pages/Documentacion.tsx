@@ -131,7 +131,7 @@ export default function Documentacion() {
       {datos?.aviso && <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">{datos.aviso}</p>}
 
       {datos && (
-        <div className={`mb-4 grid grid-cols-2 gap-3 transition-opacity duration-200 md:grid-cols-5 ${loading ? 'opacity-60' : ''}`}>
+        <div className={`mb-4 grid grid-cols-2 gap-3 transition-opacity duration-200 md:grid-cols-4 xl:grid-cols-6 ${loading ? 'opacity-60' : ''}`}>
           <div className="card p-4">
             <p className="text-2xl font-semibold tabular-nums text-emerald-600">{datos.resumen.completos}<span className="text-sm font-normal text-slate-400"> / {datos.resumen.vendedores}</span></p>
             <p className="mt-0.5 text-xs text-slate-500">Vendedores con todo entregado</p>
@@ -144,7 +144,7 @@ export default function Documentacion() {
                 className={`card p-4 text-left transition hover:border-brand-300 ${activo ? 'border-brand-500 ring-2 ring-brand-500/15' : ''}`}
                 title={activo ? 'Quitar el filtro' : `Ver solo quienes deben ${c.corto}`}>
                 <p className={`text-2xl font-semibold tabular-nums ${r.falta ? 'text-red-600' : 'text-emerald-600'}`}>{r.falta}<span className="text-sm font-normal text-slate-400"> faltan</span></p>
-                <p className="mt-0.5 text-xs text-slate-500">{c.titulo}</p>
+                <p className="mt-0.5 truncate text-xs text-slate-500">{c.titulo}</p>
               </button>
             )
           })}

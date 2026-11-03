@@ -4,7 +4,7 @@ import { api, guardarComo } from '../../api'
 import { useAuth } from '../../auth'
 import { fmt } from '../../format'
 import type { ArchivoContrato, DocumentosVendedor } from '../../types'
-import { ErrorBox } from '../ui'
+import { ErrorBox, Modal } from '../ui'
 import ZonaSuelta from './ZonaSuelta'
 
 const MAX_MB = 15
@@ -21,7 +21,7 @@ export function motivoRechazo(f: File, extensiones = ['.pdf']): string | null {
 
 /**
  * Documentos de un vendedor en su carpeta de la unidad compartida de RH (se leen en vivo).
- * Hoy solo «contratos» (PDF); otros tipos de documento se agregan en el backend (CATEGORIAS) y aquí
+ * Cada tipo (contratos, kardex, CV…); otros tipos de documento se agregan en el backend (CATEGORIAS) y aquí
  * con otra instancia de este componente, pasando `categoria`, `titulo` y `extensiones`.
  */
 export default function Documentos({
@@ -43,6 +43,8 @@ export default function Documentos({
   const [exito, setExito] = useState('')
   const [busy, setBusy] = useState(false)
   const [copiado, setCopiado] = useState(false)
+  const [otro, setOtro] = useState(false) // mostrar la zona de subida aunque el documento ya esté subido
+  const [visor, setVisor] = useState<{ nombre: string; url: string } | null>(null) // PDF abierto dentro del sistema
 
   const cargar = () => api.documentosVendedor(vendedorId, categoria).then(setDatos).catch((e) => setError(e.message))
   useEffect(() => {
@@ -50,23 +52,20 @@ export default function Documentos({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vendedorId, categoria])
 
+  // El documento se ve dentro del sistema (visor propio); el archivo siempre se pide con la sesión, nunca por un enlace público.
   const ver = async (a: ArchivoContrato, descargar = false) => {
     setError('')
-    // La pestaña se abre antes de pedir el archivo para que el navegador no la bloquee.
-    const ventana = descargar ? null : window.open('', '_blank')
     try {
       const { blob } = await api.verDocumento(vendedorId, a.nombre, descargar, categoria)
-      if (descargar) {
-        guardarComo(blob, a.nombre)
-      } else {
-        const url = URL.createObjectURL(blob)
-        if (ventana) ventana.location.href = url
-        setTimeout(() => URL.revokeObjectURL(url), 120_000)
-      }
+      if (descargar) guardarComo(blob, a.nombre)
+      else setVisor({ nombre: a.nombre, url: URL.createObjectURL(blob) })
     } catch (e) {
-      ventana?.close()
       setError((e as Error).message)
     }
+  }
+  const cerrarVisor = () => {
+    if (visor) URL.revokeObjectURL(visor.url)
+    setVisor(null)
   }
 
   // Sube uno por uno los archivos soltados o elegidos y resume qué pasó con cada uno.
@@ -91,7 +90,7 @@ export default function Documentos({
     }
     await cargar()
     setBusy(false)
-    if (subidos) setExito(subidos === 1 ? 'Archivo subido.' : `${subidos} archivos subidos.`)
+    if (subidos) setExito((subidos === 1 ? 'Archivo subido.' : `${subidos} archivos subidos.`))
     if (fallos.length) setError(fallos.join('\n'))
   }
 
@@ -171,7 +170,7 @@ export default function Documentos({
             ))}
           </div>
 
-          {puede('documentos.subir') && <div className="mt-3">
+          {puede('documentos.subir') && (categoria === 'contratos' || datos.archivos.length === 0 || otro) && <div className="mt-3">
             <ZonaSuelta
               onArchivos={subir}
               accept={extensiones.join(',')}
@@ -180,6 +179,10 @@ export default function Documentos({
               disabled={busy}
             />
           </div>}
+
+          {puede('documentos.subir') && categoria !== 'contratos' && datos.archivos.length > 0 && !otro && (
+            <button onClick={() => setOtro(true)} className="mt-2 text-xs font-medium text-brand-600 hover:text-brand-700">Subir otro archivo</button>
+          )}
 
           {!datos.existe_carpeta && puede('documentos.subir') && (
             <button onClick={crearCarpeta} disabled={busy} className="mt-2 flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-700 disabled:opacity-50">
@@ -195,6 +198,12 @@ export default function Documentos({
         </p>
       )}
       {error && <div className="mt-2 whitespace-pre-line"><ErrorBox>{error}</ErrorBox></div>}
+
+      {visor && (
+        <Modal ancho="max-w-5xl" onClose={cerrarVisor} titulo={<span className="block max-w-[60vw] truncate">{visor.nombre}</span>}>
+          <iframe src={visor.url} title={visor.nombre} className="h-[72vh] w-full rounded-lg border border-slate-200 bg-slate-50" />
+        </Modal>
+      )}
     </section>
   )
 }
