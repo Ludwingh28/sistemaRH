@@ -74,6 +74,51 @@ def nombre_de_carpeta(nombre: str) -> str:
     return limpio[:150] or "SIN NOMBRE"
 
 
+_ORDINALES = {1: "1er", 2: "2do", 3: "3er", 4: "4to", 5: "5to", 6: "6to", 7: "7mo", 8: "8vo", 9: "9no", 10: "10mo"}
+
+
+def nombre_contrato(numero: int, vendedor: str, ext: str = ".pdf") -> str:
+    """Nombre con el que se guarda el PDF de un contrato: «1er contrato (NOMBRE DEL VENDEDOR).pdf»."""
+    return nombre_de_carpeta(f"{_ORDINALES.get(numero, f'{numero}º')} contrato ({vendedor})") + ext
+
+
+def renumerar_archivos_contratos(db: Session, v: Vendedor, mapa: dict[int, int]) -> int:
+    """Cuando los contratos de un vendedor se renumeran (mapa {número viejo: número nuevo}), sus PDF ya subidos
+    («2do contrato (NOMBRE).pdf») siguen al contrato: se renombran al número nuevo. Del número más alto al más bajo, para no
+    pisar nada; si el destino ya existe, ese archivo no se toca. Es de mejor esfuerzo: nunca hace fallar la operación.
+    Devuelve cuántos archivos se renombraron."""
+    if not mapa or not configurada():
+        return 0
+    try:
+        ruta = ruta_contratos(db, v, clave="contratos")
+    except HTTPException:
+        return 0
+    if ruta is None:
+        return 0
+    cambiados = 0
+    for viejo in sorted(mapa, reverse=True):
+        base_viejo = Path(nombre_contrato(viejo, v.nombre)).stem
+        base_nuevo = Path(nombre_contrato(mapa[viejo], v.nombre)).stem
+        for f in sorted(ruta.iterdir()):
+            if not f.is_file() or not (f.stem == base_viejo or f.stem.startswith(base_viejo + " - ")):
+                continue
+            destino = ruta / (base_nuevo + f.stem[len(base_viejo):] + f.suffix)
+            if destino.exists():
+                log.warning("No se renombró %s: ya existe %s", f.name, destino.name)
+                continue
+            try:
+                f.rename(destino)
+                cambiados += 1
+            except OSError as e:
+                log.warning("No se pudo renombrar %s: %s", f.name, e)
+    return cambiados
+
+
+def nombre_documento(clave: str, vendedor: str, ext: str = ".pdf") -> str:
+    """Nombre con el que se guarda el PDF de un documento: «Kardex (NOMBRE DEL VENDEDOR).pdf»."""
+    return nombre_de_carpeta(f"{categoria(clave)['carpeta']} ({vendedor})") + ext
+
+
 def nombre_de_archivo(nombre: str) -> str:
     base = Path(nombre.replace("\\", "/")).name  # nunca una ruta
     return nombre_de_carpeta(base) or "archivo"

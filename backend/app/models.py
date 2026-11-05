@@ -161,6 +161,8 @@ class Vendedor(Base):
     fecha_primer_ingreso: Mapped[date] = mapped_column(Date)
     fecha_baja: Mapped[date | None] = mapped_column(Date)
     motivo_baja: Mapped[str | None] = mapped_column(String(255))
+    # Si se retiró y volvió: desde cuándo cuenta su ingreso actual. Las salidas anteriores quedan en `periodos`.
+    fecha_reingreso: Mapped[date | None] = mapped_column(Date)
 
     creado_por: Mapped[str | None] = mapped_column(String(80))
     creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
@@ -175,6 +177,41 @@ class Vendedor(Base):
     historial: Mapped[list["HistorialVendedor"]] = relationship(
         back_populates="vendedor", order_by="HistorialVendedor.id"
     )
+    periodos: Mapped[list["PeriodoServicio"]] = relationship(
+        back_populates="vendedor", order_by="PeriodoServicio.fecha_ingreso", cascade="all, delete-orphan"
+    )
+
+    def tramos(self) -> list[tuple[date, date | None, str | None]]:
+        """(ingreso, baja, motivo) de cada vez que trabajó en la empresa; el último es el actual (baja None si sigue).
+
+        Una salida es una baja de un reingreso (`periodos`) o un contrato que terminó antes de tiempo
+        (`fecha_fin_prevista`, p. ej. uno anterior cargado a mano): su baja es el día siguiente al último trabajado.
+        Cada salida tiene un ingreso posterior: el inicio del primer contrato que empieza desde ese día.
+        """
+        salidas: list[tuple[date, str | None]] = [(p.fecha_baja, p.motivo_baja) for p in self.periodos]
+        contratos = sorted(self.contratos, key=lambda c: c.fecha_inicio)
+        for c in contratos:
+            if not c.fecha_fin_prevista:
+                continue
+            baja = c.fecha_fin + timedelta(days=1)
+            if any(abs((baja - b).days) <= 1 for b, _ in salidas):
+                continue  # ya registrada como periodo (reingreso)
+            salidas.append((baja, c.motivo_fin))
+        salidas.sort(key=lambda s: s[0])
+        entradas = [min([self.fecha_primer_ingreso] + [c.fecha_inicio for c in contratos])]
+        for baja, _ in salidas:
+            siguientes = [c.fecha_inicio for c in contratos if c.fecha_inicio >= baja]
+            entradas.append(min(siguientes) if siguientes else baja)
+        if self.fecha_reingreso and self.fecha_reingreso > entradas[-1]:
+            entradas[-1] = self.fecha_reingreso
+        tramos = [(entradas[i], salidas[i][0], salidas[i][1]) for i in range(len(salidas))]
+        tramos.append((entradas[-1], self.fecha_baja, self.motivo_baja))
+        return tramos
+
+    @property
+    def fecha_ingreso_actual(self) -> date:
+        """Desde cuándo cuenta su ingreso actual: el último reingreso, o el primer ingreso si nunca se retiró."""
+        return self.tramos()[-1][0]
 
     @property
     def vigente(self) -> bool:
@@ -207,6 +244,10 @@ class Contrato(Base):
     fecha_fin: Mapped[date] = mapped_column(Date)
     dias_capacitacion: Mapped[int] = mapped_column(default=0)
     observacion: Mapped[str | None] = mapped_column(String(255))
+    # Si terminó antes de tiempo porque el vendedor se retiró: hasta cuándo debía durar. `fecha_fin` queda en el
+    # último día que trabajó (así la asistencia no cuenta faltas mientras estuvo fuera).
+    fecha_fin_prevista: Mapped[date | None] = mapped_column(Date)
+    motivo_fin: Mapped[str | None] = mapped_column(String(255))  # por qué terminó antes de tiempo
     creado_por: Mapped[str | None] = mapped_column(String(80))
     creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
@@ -216,6 +257,21 @@ class Contrato(Base):
     def fecha_inicio_ventas(self) -> date:
         """Primer día de ventas: después de la capacitación (día 1 = ingreso)."""
         return self.fecha_inicio + timedelta(days=self.dias_capacitacion)
+
+
+class PeriodoServicio(Base):
+    """Un ingreso anterior ya cerrado de un vendedor que se retiró y volvió (reingreso). El ingreso actual no está aquí:
+    es `Vendedor.fecha_ingreso_actual` hasta `Vendedor.fecha_baja`. Sirve para que la rotación siga contando esa salida."""
+
+    __tablename__ = "periodos_servicio"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    vendedor_id: Mapped[int] = mapped_column(ForeignKey("vendedores.id", ondelete="CASCADE"), index=True)
+    fecha_ingreso: Mapped[date] = mapped_column(Date)
+    fecha_baja: Mapped[date] = mapped_column(Date)  # primer día sin trabajar
+    motivo_baja: Mapped[str | None] = mapped_column(String(255))
+
+    vendedor: Mapped[Vendedor] = relationship(back_populates="periodos")
 
 
 class Feriado(Base):

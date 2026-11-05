@@ -14,18 +14,18 @@ cualquier rango (semana, mes, año) y no solo para el último mes cargado. Adem�
 «estándar», con el personal al inicio del período en lugar del que figuró en él.
 """
 import calendar
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.api.deps import requiere_permiso
 from app.api.v1.asistencia import construir_matriz
 from app.core.alcance import alcance_de
 from app.core.database import get_db
-from app.models import EquipoDTS, Vendedor
+from app.models import Contrato, EquipoDTS, PeriodoServicio, Vendedor
 
 router = APIRouter(prefix="/rotacion", tags=["rotacion"], dependencies=[Depends(requiere_permiso("rotacion.ver"))])
 
@@ -105,19 +105,25 @@ def _tasas(inicial: int, altas: int, bajas: int, final: int) -> tuple[float, flo
     return (bajas / promedio_rh if promedio_rh else 0.0, bajas / promedio_std if promedio_std else 0.0)
 
 
+def _ingresos(v: Vendedor):
+    """(ingreso, baja, motivo) de cada ingreso del vendedor: los anteriores (si se retiró y volvió) y el actual.
+    Un reingreso cuenta como alta y su salida anterior sigue contando como baja en su mes."""
+    yield from v.tramos()
+
+
 def _contar(vendedores: list[Vendedor], desde: date, hasta: date) -> tuple[int, int, int, int]:
     """(inicial, altas, bajas, final). La fecha de baja es el primer día sin trabajar."""
     inicial = altas = bajas = final = 0
     for v in vendedores:
-        ingreso, baja = v.fecha_primer_ingreso, v.fecha_baja
-        if ingreso < desde and (baja is None or baja >= desde):
-            inicial += 1
-        if desde <= ingreso <= hasta:
-            altas += 1
-        if baja is not None and desde <= baja <= hasta:
-            bajas += 1
-        if ingreso <= hasta and (baja is None or baja > hasta):
-            final += 1
+        for ingreso, baja, _motivo in _ingresos(v):
+            if ingreso < desde and (baja is None or baja >= desde):
+                inicial += 1
+            if desde <= ingreso <= hasta:
+                altas += 1
+            if baja is not None and desde <= baja <= hasta:
+                bajas += 1
+            if ingreso <= hasta and (baja is None or baja > hasta):
+                final += 1
     return inicial, altas, bajas, final
 
 
@@ -140,7 +146,7 @@ def rotacion(
 ):
     desde, hasta = _rango(desde, hasta)
     alcance = alcance_de(db)
-    consulta = alcance.filtrar(select(Vendedor).options(joinedload(Vendedor.equipo).joinedload(EquipoDTS.regional)))
+    consulta = alcance.filtrar(select(Vendedor).options(joinedload(Vendedor.equipo).joinedload(EquipoDTS.regional), selectinload(Vendedor.periodos), selectinload(Vendedor.contratos)))
     if equipo_id:
         consulta = consulta.where(Vendedor.equipo_id == equipo_id)
     if regional_id:
@@ -165,14 +171,17 @@ def rotacion(
     # Motivos de las salidas del período
     motivos: dict[str, int] = {}
     for v in vendedores:
-        if v.fecha_baja and desde <= v.fecha_baja <= hasta:
-            clave = (v.motivo_baja or "").strip().upper() or SIN_MOTIVO
-            motivos[clave] = motivos.get(clave, 0) + 1
+        for _ingreso, baja, motivo in _ingresos(v):
+            if baja and desde <= baja <= hasta:
+                clave = (motivo or "").strip().upper() or SIN_MOTIVO
+                motivos[clave] = motivos.get(clave, 0) + 1
     lista_motivos = [Motivo(motivo=m, cantidad=c) for m, c in sorted(motivos.items(), key=lambda x: (-x[1], x[0]))]
 
     # Las bajas anteriores a la primera registrada no existen en el sistema: no se puede calcular
     # rotación de esos períodos (aparecería 0 % sin ser verdad).
-    todas = list(db.scalars(select(Vendedor.fecha_baja).where(Vendedor.fecha_baja.is_not(None))))
+    todas = list(db.scalars(select(Vendedor.fecha_baja).where(Vendedor.fecha_baja.is_not(None)))) + list(
+        db.scalars(select(PeriodoServicio.fecha_baja))
+    ) + [f + timedelta(days=1) for f in db.scalars(select(Contrato.fecha_fin).where(Contrato.fecha_fin_prevista.is_not(None)))]
     primera_baja = min(todas) if todas else None
     cobertura = primera_baja.replace(day=1) if primera_baja else None
     avisos: list[str] = []

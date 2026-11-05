@@ -165,7 +165,9 @@ export const api = {
     contrato?: string
     vence_en?: number
   }) => request<Vendedor[]>(`/vendedores${qs(f)}`),
-  resumenVendedores: () => request<ResumenVendedores>('/vendedores/resumen'),
+  resumenVendedores: (f: { q?: string; regional_id?: number; equipo_id?: number } = {}) => request<ResumenVendedores>(`/vendedores/resumen${qs(f)}`),
+  reingreso: (id: number, d: { fecha_ingreso: string; equipo_id?: number; dias_capacitacion: number; observacion?: string }) =>
+    request<VendedorDetalle>(`/vendedores/${id}/reingreso`, json('POST', d)),
   anularBaja: (id: number, nota: string) => request<VendedorDetalle>(`/vendedores/${id}/reactivar`, json('POST', { nota: nota || null })),
   motivosBaja: () => request<string[]>('/vendedores/motivos-baja'),
   vendedor: (id: number) => request<VendedorDetalle>(`/vendedores/${id}`),
@@ -203,10 +205,10 @@ export const api = {
     request<DocumentosVendedor>(`/vendedores/${id}/documentos${qs({ categoria })}`),
   crearCarpetaVendedor: (id: number, categoria = 'contratos') =>
     request<DocumentosVendedor>(`/vendedores/${id}/documentos/carpeta${qs({ categoria })}`, { method: 'POST' }),
-  subirDocumento: (id: number, file: File, categoria = 'contratos') => {
+  subirDocumento: (id: number, file: File, categoria = 'contratos', contrato?: number) => {
     const datos = new FormData()
     datos.append('archivo', file)
-    return archivo(`/vendedores/${id}/documentos${qs({ categoria })}`, { method: 'POST', body: datos }).then(() => undefined)
+    return archivo(`/vendedores/${id}/documentos${qs({ categoria, contrato })}`, { method: 'POST', body: datos }).then(() => undefined)
   },
   verDocumento: (id: number, nombre: string, descargar = false, categoria = 'contratos') =>
     archivo(`/vendedores/${id}/documentos/archivo${qs({ nombre, descargar, categoria })}`),

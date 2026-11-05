@@ -1,3 +1,4 @@
+import logging
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -10,7 +11,7 @@ from app import schemas
 from app.api.deps import requiere, requiere_permiso
 from app.core.alcance import alcance_de
 from app.core.database import get_db
-from app.models import Contrato, EquipoDTS, HistorialVendedor, Vendedor
+from app.models import Contrato, EquipoDTS, HistorialVendedor, PeriodoServicio, Vendedor
 from app.integrations import bi
 from app.services import carpetas, importacion
 from app.services.calculos import (
@@ -20,6 +21,7 @@ from app.services.calculos import (
     fin_contrato_por_defecto,
 )
 
+log = logging.getLogger("rh.vendedores")
 router = APIRouter(prefix="/vendedores", tags=["vendedores"], dependencies=[Depends(requiere_permiso("vendedores.ver"))])
 
 
@@ -28,12 +30,22 @@ router = APIRouter(prefix="/vendedores", tags=["vendedores"], dependencies=[Depe
 def _contrato_out(c: Contrato, v: Vendedor, es_ultimo: bool, hoy: date) -> schemas.ContratoOut:
     out = schemas.ContratoOut.model_validate(c)
     out.dias_para_vencer = (c.fecha_fin - hoy).days
-    if not es_ultimo:
+    if c.fecha_fin_prevista:
+        out.estado = "anticipado"  # terminó antes de tiempo porque el vendedor se retiró (luego volvió)
+    elif not es_ultimo:
         out.estado = "anterior"
     elif c.fecha_inicio > hoy:
         out.estado = "futuro"
     elif not v.vigente:
-        out.estado = "rescindido"
+        # si la baja llegó antes de la fecha de fin, el contrato terminó antes de tiempo; si no, se cumplió
+        # Los contratos duran 1 año. Si se retiró antes de cumplirlo, terminó antes de tiempo: tanto si la baja cae
+        # antes del fin como si el contrato ya viene cortado en la fecha de la baja (así llegan los importados del Excel).
+        debia_durar = max(c.fecha_fin, fin_contrato_por_defecto(c.fecha_inicio))
+        if v.fecha_baja and (v.fecha_baja < c.fecha_fin or c.fecha_fin < debia_durar):
+            out.estado = "anticipado"
+            out.fecha_fin_prevista, out.motivo_fin = debia_durar, v.motivo_baja
+        else:
+            out.estado = "finalizado"
     else:
         out.estado = estado_contrato(c.fecha_fin, True, hoy)[0]
     return out
@@ -50,7 +62,7 @@ def _out(v: Vendedor, hoy: date | None = None) -> schemas.VendedorOut:
         out.estado_contrato, out.dias_para_vencer = estado_contrato(c.fecha_fin, v.vigente, hoy)
     if not v.vigente:
         out.estado = "retirado"
-    elif c and c.numero == 1 and (hoy - c.fecha_inicio).days < DIAS_NUEVO:
+    elif c and c.fecha_inicio == v.fecha_ingreso_actual and (hoy - c.fecha_inicio).days < DIAS_NUEVO:  # primer contrato del ingreso (o reingreso)
         out.estado = "nuevo"
     else:
         out.estado = "activo"
@@ -175,11 +187,26 @@ async def importar(
     return await run_in_threadpool(_procesar_importacion, db, contenido, aplicar, corregir_fechas, user.username)
 
 
+def _filtrar(consulta, q: str | None, regional_id: int | None, equipo_id: int | None):
+    """Filtros de zona, equipo y búsqueda, comunes al listado y a los totales de las tarjetas."""
+    if equipo_id:
+        consulta = consulta.where(Vendedor.equipo_id == equipo_id)
+    if regional_id:
+        consulta = consulta.where(Vendedor.equipo.has(EquipoDTS.regional_id == regional_id))
+    if q and q.strip():
+        like = f"%{q.strip()}%"
+        consulta = consulta.where(
+            Vendedor.nombre.ilike(like) | Vendedor.codigo_vendedor.ilike(like) | Vendedor.documento.ilike(like)
+        )
+    return consulta
+
+
 @router.get("/resumen", response_model=schemas.ResumenVendedores)
-def resumen(db: Session = Depends(get_db)):
+def resumen(q: str | None = None, regional_id: int | None = None, equipo_id: int | None = None, db: Session = Depends(get_db)):
+    """Totales de las tarjetas. Respetan la zona, el equipo y la búsqueda elegidos (y siempre el alcance del usuario)."""
     hoy = date.today()
     r = dict(vigentes=0, nuevos=0, por_vencer=0, vencidos=0, retirados=0)
-    for v in db.scalars(alcance_de(db).filtrar(_consulta())).unique():
+    for v in db.scalars(_filtrar(alcance_de(db).filtrar(_consulta()), q, regional_id, equipo_id)).unique():
         o = _out(v, hoy)
         if o.estado == "retirado":
             r["retirados"] += 1
@@ -235,15 +262,7 @@ def listar(
     consulta = alcance_de(db).filtrar(_consulta())
     if vigente is not None:
         consulta = consulta.where(Vendedor.fecha_baja.is_(None) if vigente else Vendedor.fecha_baja.is_not(None))
-    if equipo_id:
-        consulta = consulta.where(Vendedor.equipo_id == equipo_id)
-    if regional_id:
-        consulta = consulta.where(Vendedor.equipo.has(EquipoDTS.regional_id == regional_id))
-    if q and q.strip():
-        like = f"%{q.strip()}%"
-        consulta = consulta.where(
-            Vendedor.nombre.ilike(like) | Vendedor.codigo_vendedor.ilike(like) | Vendedor.documento.ilike(like)
-        )
+    consulta = _filtrar(consulta, q, regional_id, equipo_id)
     hoy = date.today()
     filas = [_out(v, hoy) for v in db.scalars(consulta.order_by(Vendedor.nombre)).unique()]
     if contrato:
@@ -314,14 +333,63 @@ def dar_de_baja(
     v = _get(db, vendedor_id)
     if v.fecha_baja:
         raise HTTPException(409, "El vendedor ya está dado de baja")
-    if data.fecha_baja < v.fecha_primer_ingreso:
-        raise HTTPException(422, "La baja no puede ser anterior al primer ingreso del vendedor")
+    if data.fecha_baja < v.fecha_ingreso_actual:
+        raise HTTPException(422, "La baja no puede ser anterior al ingreso del vendedor")
     posteriores = [c.numero for c in v.contratos if c.fecha_inicio > data.fecha_baja]
     if posteriores:
         nums = ", ".join(f"nº {n}" for n in posteriores)
         raise HTTPException(422, f"Tiene contratos que empiezan después de esa fecha ({nums}). Elimínalos primero.")
     v.fecha_baja, v.motivo_baja = data.fecha_baja, (data.motivo_baja or "").strip() or None
     _evento(db, v, "baja", data.fecha_baja, v.motivo_baja, user.username)
+    db.commit()
+    return _detalle(_get(db, vendedor_id))
+
+
+@router.post("/{vendedor_id}/reingreso", response_model=schemas.VendedorDetalle)
+def reingresar(
+    vendedor_id: int, data: schemas.VendedorReingreso, db: Session = Depends(get_db), user=Depends(requiere_permiso("contratos.gestionar"))
+):
+    """Un vendedor que se había retirado vuelve a la empresa: es un NUEVO INGRESO con el siguiente contrato correlativo
+    (si su último era el nº 1, el nuevo es el nº 2). El contrato en el que se retiró queda «finalizado anticipadamente»
+    (conserva hasta cuándo debía durar). La salida anterior se conserva para la rotación. No renumera nada."""
+    v = _get(db, vendedor_id)
+    if not v.fecha_baja:
+        raise HTTPException(409, "El vendedor no está dado de baja: no necesita un reingreso")
+    if data.fecha_ingreso <= v.fecha_baja:
+        raise HTTPException(422, f"El reingreso debe ser posterior a la baja ({v.fecha_baja:%d/%m/%Y}). Si la baja fue un error, el administrador puede anularla.")
+    nuevo_equipo = None
+    if data.equipo_id and data.equipo_id != v.equipo_id:
+        nuevo_equipo = db.get(EquipoDTS, data.equipo_id)
+        if not nuevo_equipo:
+            raise HTTPException(422, "Equipo DTS inexistente")
+        if not alcance_de(db).permite(nuevo_equipo.regional_id):
+            raise HTTPException(403, "Esa zona está fuera de tu alcance.")
+
+    baja, motivo = v.fecha_baja, v.motivo_baja
+    ingreso_anterior = v.fecha_ingreso_actual  # antes de tocar el contrato: depende de sus fechas
+    ultimo = v.contrato_actual
+    if ultimo and baja < ultimo.fecha_fin:  # no llegó a su fecha de fin: termina el último día que trabajó
+        ultimo.fecha_fin_prevista = ultimo.fecha_fin
+        ultimo.motivo_fin = motivo
+        ultimo.fecha_fin = max(ultimo.fecha_inicio, baja - timedelta(days=1))
+    v.periodos.append(PeriodoServicio(fecha_ingreso=ingreso_anterior, fecha_baja=baja, motivo_baja=motivo))
+    v.fecha_baja, v.motivo_baja, v.fecha_reingreso = None, None, data.fecha_ingreso
+    if nuevo_equipo:
+        _evento(db, v, "cambio_equipo", data.fecha_ingreso, f"{v.equipo_id} -> {nuevo_equipo.id}", user.username)
+        v.equipo_id = nuevo_equipo.id
+
+    numero = (ultimo.numero + 1) if ultimo else 1
+    inicio = data.fecha_ingreso
+    fin = fin_contrato_por_defecto(inicio)
+    _validar_sin_solape(v, inicio, fin)
+    v.contratos.append(Contrato(
+        numero=numero, fecha_inicio=inicio, fecha_fin=fin, dias_capacitacion=data.dias_capacitacion,
+        observacion=data.observacion, creado_por=user.username,
+    ))
+    v.contratos.sort(key=lambda c: c.numero)
+    detalle = f"Reingreso el {inicio:%d/%m/%Y} (baja anterior: {baja:%d/%m/%Y}" + (f", {motivo}" if motivo else "") + f"). Contrato nº {numero}: {inicio:%d/%m/%Y} al {fin:%d/%m/%Y}"
+    _evento(db, v, "reingreso", inicio, detalle[:255], user.username)
+    _guardar(db, f"Ya existe el contrato nº {numero}")
     db.commit()
     return _detalle(_get(db, vendedor_id))
 
@@ -356,32 +424,53 @@ def agregar_contrato(
     if not v.vigente:
         raise HTTPException(409, "El vendedor está dado de baja: no se pueden agregar contratos")
     ultimo = v.contrato_actual
-    numero = data.numero or ((ultimo.numero + 1) if ultimo else 1)
-    if any(c.numero == numero for c in v.contratos):
-        raise HTTPException(409, f"Ya existe el contrato nº {numero}")
-
-    inicio = data.fecha_inicio
-    if not inicio:
-        if numero < (ultimo.numero if ultimo else 0):
-            raise HTTPException(422, "Para un contrato anterior indica la fecha de inicio")
-        inicio = ultimo.fecha_fin + timedelta(days=1) if ultimo else date.today()
+    inicio = data.fecha_inicio or (ultimo.fecha_fin + timedelta(days=1) if ultimo else date.today())
     fin = data.fecha_fin or fin_contrato_por_defecto(inicio)
+    posteriores = [c.fecha_inicio for c in v.contratos if c.fecha_inicio > inicio]
+    if not data.fecha_fin and posteriores and fin >= min(posteriores):
+        fin = min(posteriores) - timedelta(days=1)  # un contrato anterior termina el día antes de que empiece el siguiente
     if fin < inicio:
         raise HTTPException(422, "El fin del contrato no puede ser anterior a su inicio")
     _validar_sin_solape(v, inicio, fin)
+    if data.fecha_fin_prevista and not any(c.fecha_inicio > inicio for c in v.contratos):
+        raise HTTPException(422, "Un contrato que terminó antes de tiempo tiene que ser anterior a otro. Si el vendedor se retiró ahora, usa «Dar de baja».")
+
+    # El número lo da la fecha: va después del contrato que empezó antes (o es el 1º si no hay ninguno antes).
+    # Si ese lugar ya lo ocupa otro contrato, ese y los posteriores se corren un número (y sus PDF se renombran).
+    previos = [c for c in v.contratos if c.fecha_inicio < inicio]
+    numero = max(c.numero for c in previos) + 1 if previos else 1
+    corridos = {c.numero: c.numero + 1 for c in v.contratos if c.numero >= numero}
+    if corridos:
+        # en dos pasos para no chocar con la restricción de número único del vendedor
+        for c in v.contratos:
+            if c.numero in corridos:
+                c.numero += 100_000
+        _guardar(db, "No se pudo reordenar los contratos")
+        for c in v.contratos:
+            if c.numero >= 100_000:
+                c.numero = corridos[c.numero - 100_000]
+        _guardar(db, "No se pudo reordenar los contratos")
 
     v.contratos.append(
         Contrato(
             numero=numero, fecha_inicio=inicio, fecha_fin=fin, dias_capacitacion=data.dias_capacitacion,
-            observacion=data.observacion, creado_por=user.username,
+            observacion=data.observacion, creado_por=user.username, fecha_fin_prevista=data.fecha_fin_prevista,
+            motivo_fin=data.motivo_fin if data.fecha_fin_prevista else None,
         )
     )
     v.contratos.sort(key=lambda c: c.numero)
     _sincronizar_primer_ingreso(v)
-    es_renovacion = ultimo is None or numero > ultimo.numero
-    _evento(db, v, "renovacion" if es_renovacion else "contrato_anterior", inicio,
-            f"Contrato nº {numero}: {inicio:%d/%m/%Y} al {fin:%d/%m/%Y}", user.username)
+    es_renovacion = ultimo is None or inicio > ultimo.fecha_inicio
+    detalle = f"Contrato nº {numero}: {inicio:%d/%m/%Y} al {fin:%d/%m/%Y}"
+    if data.fecha_fin_prevista:
+        detalle += f" (finalizado anticipadamente; debía durar hasta el {data.fecha_fin_prevista:%d/%m/%Y}" + (f"; motivo: {data.motivo_fin}" if data.motivo_fin else "") + ")"
+    if corridos:
+        detalle += ". Se renumeraron: " + ", ".join(f"nº {a} → nº {b}" for a, b in sorted(corridos.items()))
+    _evento(db, v, "renovacion" if es_renovacion else "contrato_anterior", inicio, detalle[:255], user.username)
     _guardar(db, f"Ya existe el contrato nº {numero}")
+    renombrados = carpetas.renumerar_archivos_contratos(db, v, corridos)
+    if renombrados:
+        log.info("Contratos de %s renumerados: %s archivos renombrados", v.codigo_vendedor, renombrados)
     db.commit()
     return _detalle(_get(db, vendedor_id))
 
@@ -404,13 +493,20 @@ def actualizar_contrato(
     fin = cambios.get("fecha_fin") or c.fecha_fin
     if fin < inicio:
         raise HTTPException(422, "El fin del contrato no puede ser anterior a su inicio")
+    prevista = cambios["fecha_fin_prevista"] if "fecha_fin_prevista" in cambios else c.fecha_fin_prevista
+    if prevista and prevista <= fin:
+        raise HTTPException(422, "La fecha prevista debe ser posterior al último día trabajado")
     _validar_sin_solape(v, inicio, fin, excluir_id=c.id)
     nuevo_numero = cambios.get("numero")
     if nuevo_numero and nuevo_numero != c.numero and any(o.numero == nuevo_numero for o in v.contratos):
         raise HTTPException(409, f"Ya existe el contrato nº {nuevo_numero}")
+    if prevista and v.vigente and not any(o.fecha_inicio > inicio for o in v.contratos if o.id != c.id):
+        raise HTTPException(422, "El último contrato de un vendedor vigente no puede figurar como finalizado anticipadamente. Si se retiró, usa «Dar de baja».")
     cont = next(o for o in v.contratos if o.id == c.id)
+    if not prevista:
+        cambios["motivo_fin"] = None  # sin finalización anticipada no hay motivo
     for k, val in cambios.items():
-        if val is None and k != "observacion":
+        if val is None and k not in ("observacion", "fecha_fin_prevista", "motivo_fin"):
             continue
         setattr(cont, k, val)
     v.contratos.sort(key=lambda x: x.numero)

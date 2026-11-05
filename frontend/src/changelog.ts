@@ -10,9 +10,32 @@ export interface Version {
   correcciones: string[]
 }
 
-export const VERSION_ACTUAL = '1.1.1.0'
+export const VERSION_ACTUAL = '1.1.2.0'
 
 export const changelog: Version[] = [
+  {
+    version: '1.1.2.0',
+    fecha: '2026-11-05',
+    novedades: [
+      'Al subir un contrato firmado, ahora queda claro a cuál contrato corresponde. Si el vendedor tiene un solo contrato, basta con arrastrar el PDF y se guarda en su carpeta como «1er contrato (NOMBRE DEL VENDEDOR)». Si tiene más de uno, primero eliges a cuál corresponde (aparecen con sus fechas) y se guarda como «2do contrato (NOMBRE)», «3er contrato (NOMBRE)», etc. La pantalla te muestra con qué nombre se va a guardar. Los contratos que ya estaban subidos no cambian de nombre.',
+      'Lo mismo con el resto de los documentos: se guardan con un nombre ordenado, sin importar cómo se llame el archivo que subas. Por ejemplo «Kardex (NOMBRE DEL VENDEDOR)», «Hoja de vida (NOMBRE)», «Antecedentes FELCC (NOMBRE)», «Cuenta bancaria (NOMBRE)». La pantalla muestra con qué nombre se guardará. Si ya hay uno con ese nombre no se pisa: el nuevo se guarda con « - 2».',
+      'Al soltar o elegir un archivo ya no se guarda de inmediato: aparece en una lista «Listo para guardar» y solo se guarda al pulsar «Guardar». Puedes quitarlo de la lista o cancelar si te equivocaste de archivo.',
+      'El visor de documentos es más grande y se abre al instante con una animación de carga mientras llega el archivo, así sabes que está trabajando.',
+      'Al quitar un archivo, la confirmación ahora es una ventana pequeña del propio sistema (antes era el aviso del navegador). Recuerda que no se borra: el archivo queda apartado en la carpeta _eliminados.',
+      'Agregar un contrato anterior (o renovar) ya no pide el número: el sistema lo ubica según su fecha de inicio. Si el contrato es más antiguo que los que ya existen, queda como el nº 1 y los demás se corren un número (el que era nº 1 pasa a nº 2, etc.); los PDF ya subidos de esos contratos se renombran para seguir a su contrato («1er» pasa a «2do»). Un contrato anterior termina por defecto el día antes de que empiece el siguiente, y si sus fechas se cruzan con otro, el sistema lo avisa.',
+      'Cuando un vendedor se retira antes de que termine su contrato, ese contrato figura como «Finalizado anticipadamente» (trabajó, pero terminó antes de tiempo) y muestra hasta cuándo debía durar. Si la baja llega después de la fecha de fin, figura como «Finalizado».',
+      'Reingreso: si un vendedor que se retiró vuelve a la empresa, en su ficha aparece el botón «Reingreso». Se registra como un nuevo ingreso y recibe el siguiente contrato correlativo (si su último era el nº 1, el nuevo es el nº 2): no se anula ni se renumera nada. Su salida anterior sigue contando en la rotación de su mes y el reingreso cuenta como un alta. Si pasaron muy pocos días y la baja fue un error, un administrador puede usar «Anular la baja».',
+    ],
+    correcciones: [],
+  },
+  {
+    version: '1.1.1.1',
+    fecha: '2026-11-04',
+    novedades: [],
+    correcciones: [
+      'En Vendedores, los totales de las tarjetas (Vigentes, Nuevos, Por vencer, Contrato vencido y Retirados) ahora cambian con los filtros: si eliges una zona, un equipo o escribes en el buscador, muestran las cantidades de esa selección y no las del total nacional.',
+    ],
+  },
   {
     version: '1.1.1.0',
     fecha: '2026-11-05',

@@ -15,7 +15,8 @@ const ESTADO_CONTRATO: Record<EstadoContratoFila, { texto: string; clase: string
   vencido: { texto: 'Vencido', clase: 'badge-bad' },
   anterior: { texto: 'Anterior', clase: 'badge-off' },
   futuro: { texto: 'Programado', clase: 'badge-info' },
-  rescindido: { texto: 'Finalizado', clase: 'badge-off' },
+  anticipado: { texto: 'Finalizado anticipadamente', clase: 'badge-warn' },
+  finalizado: { texto: 'Finalizado', clase: 'badge-off' },
 }
 
 const EVENTO: Record<string, string> = {
@@ -26,6 +27,7 @@ const EVENTO: Record<string, string> = {
   contrato_eliminado: 'Contrato eliminado',
   cambio_equipo: 'Cambio de equipo',
   baja: 'Baja',
+  reingreso: 'Reingreso (nuevo ingreso)',
   reactivacion: 'Baja anulada',
   cambio_codigo: 'Cambio de código',
 }
@@ -59,7 +61,31 @@ function FormContrato({
   const [finManual, setFinManual] = useState(modo.tipo === 'editar')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const fin = finManual ? f.fin : f.inicio ? finPorDefecto(f.inicio) : ''
+  // Fin por defecto: 1 año; pero un contrato anterior termina el día antes de que empiece el siguiente.
+  const finAuto = (() => {
+    if (!f.inicio) return ''
+    const base = finPorDefecto(f.inicio)
+    const sig = det.contratos.map((c) => c.fecha_inicio).filter((d) => d > f.inicio).sort()[0]
+    return sig && base >= sig ? sumarDias(sig, -1) : base
+  })()
+  const fin = finManual ? f.fin : finAuto
+  // «Finalizado anticipadamente»: el vendedor se retiró antes de la fecha en que debía terminar el contrato.
+  // Se sugiere solo cuando el contrato anterior quedó cortado por el que le sigue; también se puede marcar a mano.
+  const prevista = (modo.tipo === 'editar' && modo.contrato.fecha_fin_prevista) || (f.inicio ? finPorDefecto(f.inicio) : '')
+  const [motivos, setMotivos] = useState<string[]>([])
+  const motivoInicial = modo.tipo === 'editar' ? modo.contrato.motivo_fin ?? '' : ''
+  const [motivo, setMotivo] = useState(motivoInicial && motivos.includes(motivoInicial) ? motivoInicial : motivoInicial ? 'OTRO' : '')
+  const [otro, setOtro] = useState(motivoInicial)
+  useEffect(() => {
+    api.motivosBaja().then(setMotivos).catch(() => setMotivos([]))
+  }, [])
+  const [anticManual, setAnticManual] = useState<boolean | null>(modo.tipo === 'editar' ? !!modo.contrato.fecha_fin_prevista : null)
+  const anticipado = anticManual ?? (modo.tipo !== 'editar' && !finManual && !!f.inicio && fin < prevista)
+  const anticValido = anticipado && !!prevista && !!fin && fin < prevista
+  // El número lo da la fecha: va después del contrato que empezó antes; los que ocupan ese lugar se corren uno.
+  const previos = det.contratos.filter((c) => f.inicio && c.fecha_inicio < f.inicio)
+  const numeroAuto = previos.length ? Math.max(...previos.map((c) => c.numero)) + 1 : 1
+  const renumeran = det.contratos.filter((c) => c.numero >= numeroAuto)
 
   const titulo =
     modo.tipo === 'renovar' ? 'Renovar contrato'
@@ -76,6 +102,13 @@ function FormContrato({
       fecha_fin: fin || undefined,
       dias_capacitacion: Number(f.cap),
       observacion: f.obs.trim() || undefined,
+      fecha_fin_prevista: anticValido ? prevista : modo.tipo === 'editar' ? null : undefined,
+      motivo_fin: anticValido ? (motivo === 'OTRO' ? otro.trim() || 'OTRO' : motivo) || undefined : undefined,
+    }
+    if (anticipado && !anticValido) {
+      setError(`Si terminó antes de tiempo, el último día trabajado debe ser anterior al ${fmt(prevista)}.`)
+      setBusy(false)
+      return
     }
     try {
       const r =
@@ -100,10 +133,12 @@ function FormContrato({
           </p>
         )}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div>
-            <label className={labelCls}>Nº de contrato</label>
-            <input type="number" min={1} className="input-field" value={f.numero} onChange={(e) => setF({ ...f, numero: e.target.value })} required />
-          </div>
+          {modo.tipo === 'editar' && (
+            <div>
+              <label className={labelCls}>Nº de contrato</label>
+              <input type="number" min={1} className="input-field" value={f.numero} onChange={(e) => setF({ ...f, numero: e.target.value })} required />
+            </div>
+          )}
           <div>
             <label className={labelCls}>Días de capacitación</label>
             <select className="input-field" value={f.cap} onChange={(e) => setF({ ...f, cap: e.target.value })}>
@@ -115,17 +150,56 @@ function FormContrato({
             <input type="date" className="input-field" value={f.inicio} onChange={(e) => setF({ ...f, inicio: e.target.value })} required />
           </div>
           <div>
-            <label className={labelCls}>Fin</label>
+            <label className={labelCls}>{anticipado ? 'Último día trabajado' : 'Fin'}</label>
             <input
               type="date" className="input-field" value={fin} required
               onChange={(e) => { setF({ ...f, fin: e.target.value }); setFinManual(true) }}
             />
           </div>
         </div>
+        {modo.tipo !== 'renovar' && (
+          <div className="rounded-xl border border-slate-200 px-3 py-2.5">
+            <label className="flex cursor-pointer items-start gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox" className="mt-0.5" checked={anticipado}
+                onChange={(e) => {
+                  setAnticManual(e.target.checked)
+                  if (e.target.checked && !finManual) { setF({ ...f, fin: finAuto }); setFinManual(true) }
+                }}
+              />
+              <span>
+                Terminó antes de tiempo (finalizado anticipadamente)
+                <span className="block text-xs text-slate-500">
+                  {anticipado
+                    ? <>Debía durar hasta el <b>{prevista ? fmt(prevista) : '—'}</b>; en «Fin» pon el último día que trabajó.</>
+                    : 'Márcalo si el vendedor se retiró antes de cumplir el año de este contrato.'}
+                </span>
+              </span>
+            </label>
+            {anticipado && (
+              <div className="mt-3 space-y-2">
+                <label className={labelCls}>Motivo</label>
+                <select className="input-field" value={motivo} onChange={(e) => setMotivo(e.target.value)}>
+                  <option value="">Sin especificar</option>
+                  {motivos.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+                {motivo === 'OTRO' && (
+                  <input className="input-field mayus" placeholder="Describe el motivo" value={otro} onChange={alEscribirMayus(setOtro)} />
+                )}
+              </div>
+            )}
+          </div>
+        )}
         <div>
           <label className={labelCls}>Observación</label>
           <input className="input-field mayus" value={f.obs} onChange={alEscribirMayus((v) => setF((x) => ({ ...x, obs: v })))} />
         </div>
+        {modo.tipo !== 'editar' && f.inicio && (
+          <p className="rounded-xl bg-slate-50 px-3 py-2.5 text-xs text-slate-600">
+            Quedará como <b>contrato nº {numeroAuto}</b>, según su fecha de inicio.
+            {renumeran.length > 0 && <> Los contratos {renumeran.map((c) => `nº ${c.numero}`).join(', ')} pasarán a ser {renumeran.map((c) => `nº ${c.numero + 1}`).join(', ')}, y sus PDF ya subidos se renombran.</>}
+          </p>
+        )}
         {error && <ErrorBox>{error}</ErrorBox>}
         <button disabled={busy} className="btn-primary w-full text-sm">
           <Check size={15} /> {busy ? 'Guardando…' : 'Guardar contrato'}
@@ -189,6 +263,71 @@ function FormBaja({
         {error && <ErrorBox>{error}</ErrorBox>}
         <button disabled={busy} className="btn-primary w-full bg-red-600 text-sm hover:bg-red-700 focus:ring-red-500">
           <UserMinus size={15} /> {busy ? 'Guardando…' : 'Confirmar baja'}
+        </button>
+      </form>
+    </Modal>
+  )
+}
+
+function FormReingreso({ det, estructura, onClose, onDone }: { det: VendedorDetalle; estructura: Regional[]; onClose: () => void; onDone: (d: VendedorDetalle) => void }) {
+  const [fecha, setFecha] = useState(hoyIso())
+  const [equipo, setEquipo] = useState(String(det.equipo_id))
+  const [cap, setCap] = useState('0')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const siguiente = (det.contratos[det.contratos.length - 1]?.numero ?? 0) + 1
+  const dias = det.fecha_baja && fecha ? Math.round((new Date(fecha).getTime() - new Date(det.fecha_baja).getTime()) / 86400000) : null
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setBusy(true)
+    try {
+      onDone(await api.reingreso(det.id, { fecha_ingreso: fecha, equipo_id: Number(equipo) !== det.equipo_id ? Number(equipo) : undefined, dias_capacitacion: Number(cap) }))
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal titulo={`Reingreso de ${det.nombre}`} onClose={onClose}>
+      <form onSubmit={submit} className="space-y-4">
+        <p className="rounded-xl bg-blue-50 px-3 py-2.5 text-sm text-blue-800">
+          Se retiró el {fmt(det.fecha_baja)}{det.motivo_baja ? ` (${det.motivo_baja})` : ''}. Al volver cuenta como <b>nuevo ingreso</b> y recibe el <b>contrato nº {siguiente}</b>.
+          El contrato anterior queda como «finalizado anticipadamente».
+        </p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <label className={labelCls}>Fecha de reingreso *</label>
+            <input type="date" className="input-field" value={fecha} min={det.fecha_baja ? sumarDias(det.fecha_baja, 1) : undefined} onChange={(e) => setFecha(e.target.value)} required />
+          </div>
+          <div>
+            <label className={labelCls}>Días de capacitación</label>
+            <select className="input-field" value={cap} onChange={(e) => setCap(e.target.value)}>
+              {[0, 1, 2, 3].map((d) => <option key={d} value={d}>{d === 0 ? 'Sin capacitación' : d}</option>)}
+            </select>
+          </div>
+        </div>
+        <div>
+          <label className={labelCls}>Equipo DTS</label>
+          <select className="input-field" value={equipo} onChange={(e) => setEquipo(e.target.value)}>
+            {estructura.map((r) => (
+              <optgroup key={r.id} label={r.nombre}>
+                {r.equipos.map((eq) => <option key={eq.id} value={eq.id}>{eq.nombre}</option>)}
+              </optgroup>
+            ))}
+          </select>
+        </div>
+        {dias !== null && dias <= 3 && (
+          <p className="rounded-xl bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+            Pasaron solo {dias} {dias === 1 ? 'día' : 'días'} desde la baja. Si la baja fue un error, un administrador puede usar «Anular la baja» y el vendedor sigue con el mismo contrato.
+          </p>
+        )}
+        {error && <ErrorBox>{error}</ErrorBox>}
+        <button disabled={busy} className="btn-primary w-full text-sm">
+          <UserCheck size={15} /> {busy ? 'Guardando…' : 'Registrar reingreso'}
         </button>
       </form>
     </Modal>
@@ -261,6 +400,7 @@ export default function DetalleVendedor({
   const [modoContrato, setModoContrato] = useState<ModoContrato | null>(null)
   const [baja, setBaja] = useState(false)
   const [reactivar, setReactivar] = useState(false)
+  const [reingreso, setReingreso] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -402,6 +542,7 @@ export default function DetalleVendedor({
                           {c.dias_para_vencer === 0 ? 'vence hoy' : `vence en ${c.dias_para_vencer} días`}
                         </span>
                       )}
+                      {c.estado === 'anticipado' && <span className="text-xs text-slate-400">{c.fecha_fin_prevista ? `debía durar hasta el ${fmt(c.fecha_fin_prevista)}${c.motivo_fin ? ` · motivo: ${c.motivo_fin}` : ''}` : `la baja fue el ${fmt(det.fecha_baja)}`}</span>}
                       {c.estado === 'vencido' && <span className="text-xs text-red-500">venció hace {-c.dias_para_vencer} días</span>}
                       {puedeContratos && (
                         <span className="ml-auto flex gap-1">
@@ -546,6 +687,11 @@ export default function DetalleVendedor({
                 <UserMinus size={14} /> Dar de baja
               </button>
             )}
+            {puede('contratos.gestionar') && !det.vigente && (
+              <button onClick={() => setReingreso(true)} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-brand-600 transition-colors hover:bg-brand-50 hover:text-brand-700">
+                <Plus size={14} /> Reingreso
+              </button>
+            )}
             {user?.rol === 'admin' && !det.vigente && (
               <button onClick={() => setReactivar(true)} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-emerald-600 transition-colors hover:bg-emerald-50 hover:text-emerald-700">
                 <UserCheck size={14} /> Anular la baja
@@ -571,6 +717,12 @@ export default function DetalleVendedor({
       <FormContrato
         det={det} modo={modoContrato} onClose={() => setModoContrato(null)}
         onDone={(d, m) => { setModoContrato(null); aplicar(d, m) }}
+      />
+    )}
+    {reingreso && det && (
+      <FormReingreso
+        det={det} estructura={estructura} onClose={() => setReingreso(false)}
+        onDone={(d) => { setReingreso(false); aplicar(d, `${d.nombre} reingresó: contrato nº ${d.contratos[d.contratos.length - 1]?.numero}.`) }}
       />
     )}
     {reactivar && det && (

@@ -32,11 +32,17 @@ class ContratoBase(BaseModel):
     fecha_fin: date | None = None
     dias_capacitacion: int = Field(default=0, ge=0, le=3)
     observacion: MayusOpt = None
+    # Solo si el contrato terminó antes de tiempo (finalizado anticipadamente): hasta cuándo debía durar.
+    # En ese caso fecha_fin es el último día que trabajó.
+    fecha_fin_prevista: date | None = None
+    motivo_fin: MayusOpt = None
 
     @model_validator(mode="after")
     def _fechas(self):
         if self.fecha_inicio and self.fecha_fin and self.fecha_fin < self.fecha_inicio:
             raise ValueError("El fin del contrato no puede ser anterior a su inicio")
+        if self.fecha_fin_prevista and self.fecha_fin and self.fecha_fin_prevista <= self.fecha_fin:
+            raise ValueError("La fecha prevista debe ser posterior al último día trabajado")
         return self
 
 
@@ -50,6 +56,8 @@ class ContratoActualizar(BaseModel):
     fecha_fin: date | None = None
     dias_capacitacion: int | None = Field(default=None, ge=0, le=3)
     observacion: MayusOpt = None
+    fecha_fin_prevista: date | None = None  # null = quitar la marca de «finalizado anticipadamente»
+    motivo_fin: MayusOpt = None
 
 
 class ContratoOut(BaseModel):
@@ -62,7 +70,9 @@ class ContratoOut(BaseModel):
     dias_capacitacion: int
     fecha_inicio_ventas: date
     observacion: str | None
-    estado: str = ""  # vigente | por_vencer | vencido | anterior | futuro
+    fecha_fin_prevista: date | None = None  # solo si terminó antes de tiempo por una baja
+    motivo_fin: str | None = None
+    estado: str = ""  # vigente | por_vencer | vencido | anterior | futuro | finalizado | anticipado
     dias_para_vencer: int = 0
 
 
@@ -114,6 +124,13 @@ class VendedorBaja(BaseModel):
     motivo_baja: MayusOpt = None
 
 
+class VendedorReingreso(BaseModel):
+    fecha_ingreso: date
+    equipo_id: int | None = None  # si vuelve a otro equipo
+    dias_capacitacion: int = Field(default=0, ge=0, le=3)
+    observacion: MayusOpt = None
+
+
 class VendedorReactivar(BaseModel):
     nota: MayusOpt = None  # por qué se anula la baja (queda en el historial)
 
@@ -138,6 +155,7 @@ class VendedorOut(BaseModel):
     fecha_primer_ingreso: date
     fecha_baja: date | None
     motivo_baja: str | None
+    fecha_reingreso: date | None = None
     vigente: bool
     estado: str = ""  # activo | nuevo | retirado
     contrato_actual: ContratoOut | None = None

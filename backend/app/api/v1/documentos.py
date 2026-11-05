@@ -7,7 +7,7 @@ relativa de la carpeta de cada vendedor («Regional/NOMBRE»). Son datos persona
 import difflib
 import logging
 import shutil
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -34,6 +34,12 @@ class ArchivoOut(BaseModel):
     modificado: datetime
 
 
+class ContratoRef(BaseModel):
+    numero: int
+    fecha_inicio: date
+    fecha_fin: date
+
+
 class DocumentosVendedor(BaseModel):
     configurada: bool
     disponible: bool  # la unidad compartida responde
@@ -41,6 +47,8 @@ class DocumentosVendedor(BaseModel):
     carpeta: str | None = None  # carpeta del vendedor, relativa a la unidad: «Regional/NOMBRE»
     ruta: str | None = None  # ruta tal como la ve RH
     archivos: list[ArchivoOut] = []
+    nombre_base: str | None = None  # fuera de contratos: el PDF se guarda como «<nombre_base> (VENDEDOR).pdf»
+    contratos: list[ContratoRef] = []  # solo en «contratos»: a cuál de ellos corresponde el PDF que se sube
     aviso: str | None = None
 
 
@@ -131,6 +139,8 @@ def listar(vendedor_id: int, categoria: str = "contratos", db: Session = Depends
         carpeta=v.carpeta_contratos,
         ruta=carpetas.ruta_red(v.carpeta_contratos, categoria, carpetas.regional_de(v)) if v.carpeta_contratos else None,
         archivos=[ArchivoOut(**a) for a in carpetas.listar(ruta)],
+        nombre_base=None if categoria == "contratos" else carpetas.categoria(categoria)["carpeta"],
+        contratos=[ContratoRef(numero=c.numero, fecha_inicio=c.fecha_inicio, fecha_fin=c.fecha_fin) for c in sorted(v.contratos, key=lambda c: c.numero)] if categoria == "contratos" else [],
     )
 
 
@@ -145,7 +155,9 @@ def crear_carpeta(vendedor_id: int, categoria: str = "contratos", db: Session = 
 
 
 @router.post("/vendedores/{vendedor_id}/documentos", response_model=ArchivoOut, status_code=201, dependencies=[Depends(requiere_permiso("documentos.subir"))])
-async def subir(vendedor_id: int, categoria: str = "contratos", archivo: UploadFile = File(...), db: Session = Depends(get_db)):
+async def subir(
+    vendedor_id: int, categoria: str = "contratos", contrato: int | None = None, archivo: UploadFile = File(...), db: Session = Depends(get_db),
+):
     v = _vendedor(db, vendedor_id)
     limite = settings.CONTRATOS_MAX_MB * 1024 * 1024
     contenido = await archivo.read(limite + 1)
@@ -153,11 +165,22 @@ async def subir(vendedor_id: int, categoria: str = "contratos", archivo: UploadF
         raise HTTPException(413, f"El archivo supera el máximo de {settings.CONTRATOS_MAX_MB} MB")
     nombre = carpetas.nombre_de_archivo(archivo.filename or "contrato.pdf")
     ext = carpetas.validar_contenido(nombre, contenido, categoria)
+    if categoria == "contratos":  # el PDF se guarda como «1er contrato (NOMBRE).pdf», «2do contrato (NOMBRE).pdf»…
+        numeros = sorted(c.numero for c in v.contratos)
+        if contrato is None and len(numeros) == 1:
+            contrato = numeros[0]
+        if contrato is None:
+            raise HTTPException(422, "Elige a qué contrato corresponde el archivo.")
+        if contrato not in numeros:
+            raise HTTPException(422, f"El vendedor no tiene un contrato nº {contrato}.")
+        nombre = carpetas.nombre_contrato(contrato, v.nombre, ext)
+    else:  # «Kardex (NOMBRE).pdf», «Hoja de vida (NOMBRE).pdf»…
+        nombre = carpetas.nombre_documento(categoria, v.nombre, ext)
     ruta = carpetas.ruta_contratos(db, v, crear=True, clave=categoria)
     destino, k = ruta / nombre, 1
     while destino.exists():  # nunca se pisa un archivo de RH
         k += 1
-        destino = ruta / f"{Path(nombre).stem} ({k}){ext}"
+        destino = ruta / f"{Path(nombre).stem} - {k}{ext}"
     try:
         temporal = destino.with_suffix(".tmp")
         temporal.write_bytes(contenido)

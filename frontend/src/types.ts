@@ -46,7 +46,7 @@ export interface Regional {
 
 export type EstadoVendedor = 'activo' | 'nuevo' | 'retirado'
 export type EstadoContrato = 'vigente' | 'por_vencer' | 'vencido' | 'retirado'
-export type EstadoContratoFila = 'vigente' | 'por_vencer' | 'vencido' | 'anterior' | 'futuro' | 'rescindido'
+export type EstadoContratoFila = 'vigente' | 'por_vencer' | 'vencido' | 'anterior' | 'futuro' | 'anticipado' | 'finalizado'
 
 export interface Contrato {
   id: number
@@ -56,6 +56,8 @@ export interface Contrato {
   dias_capacitacion: number
   fecha_inicio_ventas: string
   observacion: string | null
+  motivo_fin: string | null // por qué terminó antes de tiempo
+  fecha_fin_prevista: string | null // si terminó antes de tiempo por una baja: hasta cuándo debía durar
   estado: EstadoContratoFila
   dias_para_vencer: number
 }
@@ -77,6 +79,7 @@ export interface Vendedor {
   regional: string
   fecha_primer_ingreso: string
   fecha_baja: string | null
+  fecha_reingreso: string | null
   motivo_baja: string | null
   vigente: boolean
   estado: EstadoVendedor
@@ -114,6 +117,8 @@ export interface ContratoForm {
   fecha_fin?: string
   dias_capacitacion?: number
   observacion?: string
+  fecha_fin_prevista?: string | null
+  motivo_fin?: string | null
 }
 
 export interface VendedorCrear {
@@ -262,6 +267,12 @@ export interface ArchivoContrato {
   modificado: string
 }
 
+export interface ContratoRef {
+  numero: number
+  fecha_inicio: string
+  fecha_fin: string
+}
+
 export interface DocumentosVendedor {
   configurada: boolean
   disponible: boolean
@@ -269,6 +280,8 @@ export interface DocumentosVendedor {
   carpeta: string | null
   ruta: string | null
   archivos: ArchivoContrato[]
+  contratos: ContratoRef[] // solo en «contratos»
+  nombre_base: string | null // fuera de contratos: el PDF se guarda como «<nombre_base> (VENDEDOR).pdf»
   aviso: string | null
 }
 

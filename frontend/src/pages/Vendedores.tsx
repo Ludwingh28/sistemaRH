@@ -23,7 +23,18 @@ const VISTAS: { id: Vista; label: string; clave?: keyof ResumenVendedores; color
 
 function Vencimiento({ v }: { v: Vendedor }) {
   const c = v.contrato_actual
-  if (!c || v.estado_contrato === 'retirado') return <span className="text-slate-300">—</span>
+  if (c && v.estado_contrato === 'retirado') {
+    // Se calcula al leer: sirve también para los retirados que se importaron.
+    const anticipado = c.estado === 'anticipado'
+    return (
+      <div className="leading-tight">
+        <span className={anticipado ? 'badge-warn' : 'badge-off'}>{anticipado ? 'Finalizado anticipadamente' : 'Finalizado'}</span>
+        {c.motivo_fin && <p className="mt-1 text-xs text-slate-500">{c.motivo_fin}</p>}
+        {anticipado && c.fecha_fin_prevista && <p className="text-xs tabular-nums text-slate-400">debía durar hasta {fmt(c.fecha_fin_prevista)}</p>}
+      </div>
+    )
+  }
+  if (!c) return <span className="text-slate-300">—</span>
   const d = v.dias_para_vencer ?? 0
   const clase = v.estado_contrato === 'vencido' ? 'badge-bad' : v.estado_contrato === 'por_vencer' ? 'badge-warn' : 'badge-off'
   const texto = d < 0 ? `Venció hace ${-d} d` : d === 0 ? 'Vence hoy' : `En ${d} d`
@@ -76,7 +87,7 @@ export default function Vendedores() {
     if (vista === 'por_vencer') filtros.vence_en = Number(ventana)
     if (vista === 'vencidos') filtros.contrato = 'vencido'
     setLoading(true)
-    Promise.all([api.vendedores(filtros), api.resumenVendedores()])
+    Promise.all([api.vendedores(filtros), api.resumenVendedores({ q: filtros.q, regional_id: filtros.regional_id, equipo_id: filtros.equipo_id })])
       .then(([filas, r]) => {
         if (id !== ultimaPeticion.current) return
         setLista(vista === 'nuevos' ? filas.filter((f) => f.estado === 'nuevo') : filas)
@@ -169,7 +180,7 @@ export default function Vendedores() {
               <th>Zona · Equipo</th>
               <th>Ingreso</th>
               <th>Contrato actual</th>
-              <th>Vencimiento</th>
+              <th>Vencimiento / cierre</th>
               <th>Estado</th>
               {puede('contratos.gestionar') && <th />}
             </tr>
