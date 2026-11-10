@@ -29,6 +29,7 @@ const EVENTO: Record<string, string> = {
   baja: 'Baja',
   reingreso: 'Reingreso (nuevo ingreso)',
   reactivacion: 'Baja anulada',
+  baja_corregida: 'Baja corregida',
   cambio_codigo: 'Cambio de código',
 }
 
@@ -212,15 +213,16 @@ function FormContrato({
 // ── Baja ─────────────────────────────────────────────────────────────────────
 
 function FormBaja({
-  det, onDone, onClose,
+  det, onDone, onClose, corregir = false,
 }: {
   det: VendedorDetalle
   onDone: (d: VendedorDetalle) => void
   onClose: () => void
+  corregir?: boolean // corregir la fecha/motivo de una baja ya registrada
 }) {
-  const [fecha, setFecha] = useState(hoyIso())
+  const [fecha, setFecha] = useState(corregir && det.fecha_baja ? det.fecha_baja : hoyIso())
   const [motivos, setMotivos] = useState<string[]>([])
-  const [motivo, setMotivo] = useState('')
+  const [motivo, setMotivo] = useState(corregir ? det.motivo_baja ?? '' : '')
   const [otro, setOtro] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -234,7 +236,8 @@ function FormBaja({
     setError('')
     setBusy(true)
     try {
-      onDone(await api.darDeBaja(det.id, fecha, motivo === 'OTRO' ? otro.trim() || 'OTRO' : motivo))
+      const m = motivo === 'OTRO' ? otro.trim() || 'OTRO' : motivo
+      onDone(await (corregir ? api.corregirBaja : api.darDeBaja)(det.id, fecha, m))
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -243,7 +246,7 @@ function FormBaja({
   }
 
   return (
-    <Modal titulo={`Dar de baja a ${det.nombre}`} onClose={onClose}>
+    <Modal titulo={corregir ? `Corregir la baja de ${det.nombre}` : `Dar de baja a ${det.nombre}`} onClose={onClose}>
       <form onSubmit={submit} className="space-y-4">
         <div>
           <label className={labelCls}>Fecha de salida</label>
@@ -254,6 +257,7 @@ function FormBaja({
           <label className={labelCls}>Motivo</label>
           <select className="input-field" value={motivo} onChange={(e) => setMotivo(e.target.value)}>
             <option value="">Sin especificar</option>
+            {motivo && motivo !== 'OTRO' && !motivos.includes(motivo) && <option value={motivo}>{motivo}</option>}
             {motivos.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
         </div>
@@ -262,7 +266,7 @@ function FormBaja({
         )}
         {error && <ErrorBox>{error}</ErrorBox>}
         <button disabled={busy} className="btn-primary w-full bg-red-600 text-sm hover:bg-red-700 focus:ring-red-500">
-          <UserMinus size={15} /> {busy ? 'Guardando…' : 'Confirmar baja'}
+          <UserMinus size={15} /> {busy ? 'Guardando…' : corregir ? 'Guardar corrección' : 'Confirmar baja'}
         </button>
       </form>
     </Modal>
@@ -399,6 +403,7 @@ export default function DetalleVendedor({
   const [datos, setDatos] = useState<Record<string, string>>({})
   const [modoContrato, setModoContrato] = useState<ModoContrato | null>(null)
   const [baja, setBaja] = useState(false)
+  const [corregirBaja, setCorregirBaja] = useState(false)
   const [reactivar, setReactivar] = useState(false)
   const [reingreso, setReingreso] = useState(false)
   const [error, setError] = useState('')
@@ -692,6 +697,11 @@ export default function DetalleVendedor({
                 <Plus size={14} /> Reingreso
               </button>
             )}
+            {puede('vendedores.baja') && !det.vigente && (
+              <button onClick={() => setCorregirBaja(true)} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-800">
+                <Pencil size={14} /> Corregir baja
+              </button>
+            )}
             {user?.rol === 'admin' && !det.vigente && (
               <button onClick={() => setReactivar(true)} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-emerald-600 transition-colors hover:bg-emerald-50 hover:text-emerald-700">
                 <UserCheck size={14} /> Anular la baja
@@ -729,6 +739,12 @@ export default function DetalleVendedor({
       <FormReactivar
         det={det} onClose={() => setReactivar(false)}
         onDone={(d) => { setReactivar(false); aplicar(d, `Se anuló la baja de ${d.nombre}: vuelve a figurar vigente.`) }}
+      />
+    )}
+    {corregirBaja && det && (
+      <FormBaja
+        corregir det={det} onClose={() => setCorregirBaja(false)}
+        onDone={(d) => { setCorregirBaja(false); aplicar(d, `Baja de ${d.nombre} corregida al ${fmt(d.fecha_baja)}.`) }}
       />
     )}
     {baja && det && (

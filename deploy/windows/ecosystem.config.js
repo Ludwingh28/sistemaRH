@@ -11,7 +11,9 @@ module.exports = {
     {
       name: 'sistema-rh',
       cwd: backend, // aquí se lee backend\.env
-      script: path.join(backend, '.venv', 'Scripts', 'python.exe'),
+      // pythonw.exe = Python sin ventana de consola (con python.exe aparece una ventana negra). Los mensajes
+      // siguen en logs\salida.log y logs\error.log porque PM2 redirige la salida a esos archivos.
+      script: path.join(backend, '.venv', 'Scripts', 'pythonw.exe'),
       // Un solo proceso (--workers 1): el límite de intentos de inicio de sesión vive en memoria.
       args: '-m uvicorn app.main:app --host 127.0.0.1 --port 8100 --workers 1 --proxy-headers --no-server-header',
       interpreter: 'none', // no es un script de Node: se ejecuta tal cual

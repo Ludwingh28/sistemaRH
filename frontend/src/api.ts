@@ -174,6 +174,8 @@ export const api = {
   crearVendedor: (data: VendedorCrear) => request<VendedorDetalle>('/vendedores', json('POST', data)),
   actualizarVendedor: (id: number, data: VendedorEditable) =>
     request<VendedorDetalle>(`/vendedores/${id}`, json('PATCH', data)),
+  corregirBaja: (id: number, fecha_baja: string, motivo_baja: string) =>
+    request<VendedorDetalle>(`/vendedores/${id}/baja`, json('PATCH', { fecha_baja, motivo_baja: motivo_baja || null })),
   darDeBaja: (id: number, fecha_baja: string, motivo_baja: string) =>
     request<VendedorDetalle>(`/vendedores/${id}/baja`, json('POST', { fecha_baja, motivo_baja: motivo_baja || null })),
   agregarContrato: (id: number, data: ContratoForm) =>

@@ -345,6 +345,35 @@ def dar_de_baja(
     return _detalle(_get(db, vendedor_id))
 
 
+@router.patch("/{vendedor_id}/baja", response_model=schemas.VendedorDetalle)
+def corregir_baja(
+    vendedor_id: int, data: schemas.VendedorBaja, db: Session = Depends(get_db), user=Depends(requiere_permiso("vendedores.baja"))
+):
+    """Corrige la fecha (y el motivo) de una baja ya registrada. Si el último contrato estaba cortado en la fecha de la baja
+    (así llegan los importados del Excel), su fin se mueve junto con ella: la asistencia y la rotación usan ambas fechas."""
+    v = _get(db, vendedor_id)
+    if not v.fecha_baja:
+        raise HTTPException(409, "El vendedor no está dado de baja")
+    if data.fecha_baja < v.fecha_ingreso_actual:
+        raise HTTPException(422, "La baja no puede ser anterior al ingreso del vendedor")
+    if any(c.fecha_inicio > data.fecha_baja for c in v.contratos):
+        raise HTTPException(422, "Tiene contratos que empiezan después de esa fecha. Elimínalos primero.")
+    anterior, motivo_anterior = v.fecha_baja, v.motivo_baja
+    ultimo = v.contrato_actual
+    if ultimo and ultimo.fecha_fin == anterior:
+        ultimo.fecha_fin = max(ultimo.fecha_inicio, data.fecha_baja)
+    elif ultimo and ultimo.fecha_fin == anterior - timedelta(days=1):
+        ultimo.fecha_fin = max(ultimo.fecha_inicio, data.fecha_baja - timedelta(days=1))
+    v.fecha_baja, v.motivo_baja = data.fecha_baja, (data.motivo_baja or "").strip() or None
+    detalle = f"Baja del {anterior:%d/%m/%Y} corregida al {data.fecha_baja:%d/%m/%Y}"
+    if v.motivo_baja != motivo_anterior:
+        detalle += f"; motivo: {motivo_anterior or 'sin especificar'} -> {v.motivo_baja or 'sin especificar'}"
+    _evento(db, v, "baja_corregida", date.today(), detalle[:255], user.username)
+    _guardar(db, "No se pudo corregir la baja")
+    db.commit()
+    return _detalle(_get(db, vendedor_id))
+
+
 @router.post("/{vendedor_id}/reingreso", response_model=schemas.VendedorDetalle)
 def reingresar(
     vendedor_id: int, data: schemas.VendedorReingreso, db: Session = Depends(get_db), user=Depends(requiere_permiso("contratos.gestionar"))
@@ -505,10 +534,19 @@ def actualizar_contrato(
     cont = next(o for o in v.contratos if o.id == c.id)
     if not prevista:
         cambios["motivo_fin"] = None  # sin finalización anticipada no hay motivo
+    baja_movida = None
+    if not v.vigente and cont is v.contrato_actual and cont.fecha_fin == v.fecha_baja and fin != cont.fecha_fin:
+        # el contrato terminaba el día de la baja (importado del Excel): cambiarle el fin es corregir la baja
+        if fin < v.fecha_ingreso_actual:
+            raise HTTPException(422, "La baja no puede ser anterior al ingreso del vendedor")
+        baja_movida = (v.fecha_baja, fin)
     for k, val in cambios.items():
         if val is None and k not in ("observacion", "fecha_fin_prevista", "motivo_fin"):
             continue
         setattr(cont, k, val)
+    if baja_movida:
+        v.fecha_baja = baja_movida[1]
+        _evento(db, v, "baja_corregida", date.today(), f"Baja del {baja_movida[0]:%d/%m/%Y} corregida al {baja_movida[1]:%d/%m/%Y} (fin del contrato nº {cont.numero})", user.username)
     v.contratos.sort(key=lambda x: x.numero)
     if cont.numero == 1:  # el inicio del contrato nº 1 es el primer ingreso
         v.fecha_primer_ingreso = cont.fecha_inicio
