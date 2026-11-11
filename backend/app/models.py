@@ -193,6 +193,8 @@ class Vendedor(Base):
         for c in contratos:
             if not c.fecha_fin_prevista:
                 continue
+            if not any(o.fecha_inicio > c.fecha_fin for o in contratos):
+                continue  # el último contrato: su salida es la baja del vendedor, no un reingreso
             baja = c.fecha_fin + timedelta(days=1)
             if any(abs((baja - b).days) <= 1 for b, _ in salidas):
                 continue  # ya registrada como periodo (reingreso)

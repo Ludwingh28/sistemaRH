@@ -45,6 +45,7 @@ function FormContrato({
   onDone: (d: VendedorDetalle, mensaje: string) => void
   onClose: () => void
 }) {
+  const { user } = useAuth()
   const ultimo = det.contratos[det.contratos.length - 1]
   const primero = det.contratos[0]
   const inicial = (() => {
@@ -88,6 +89,9 @@ function FormContrato({
   const numeroAuto = previos.length ? Math.max(...previos.map((c) => c.numero)) + 1 : 1
   const renumeran = det.contratos.filter((c) => c.numero >= numeroAuto)
 
+  // Contrato en el que se retiró: sus fechas y su salida se corrigen con «Corregir baja».
+  const bloqueado = modo.tipo === 'editar' && !det.vigente && modo.contrato.id === ultimo?.id
+
   const titulo =
     modo.tipo === 'renovar' ? 'Renovar contrato'
     : modo.tipo === 'anterior' ? 'Agregar contrato anterior'
@@ -97,16 +101,18 @@ function FormContrato({
     e.preventDefault()
     setError('')
     setBusy(true)
-    const datos = {
-      numero: Number(f.numero) || undefined,
-      fecha_inicio: f.inicio || undefined,
-      fecha_fin: fin || undefined,
-      dias_capacitacion: Number(f.cap),
-      observacion: f.obs.trim() || undefined,
-      fecha_fin_prevista: anticValido ? prevista : modo.tipo === 'editar' ? null : undefined,
-      motivo_fin: anticValido ? (motivo === 'OTRO' ? otro.trim() || 'OTRO' : motivo) || undefined : undefined,
-    }
-    if (anticipado && !anticValido) {
+    const datos = bloqueado
+      ? { numero: Number(f.numero) || undefined, dias_capacitacion: Number(f.cap), observacion: f.obs.trim() || undefined }
+      : {
+          numero: Number(f.numero) || undefined,
+          fecha_inicio: f.inicio || undefined,
+          fecha_fin: fin || undefined,
+          dias_capacitacion: Number(f.cap),
+          observacion: f.obs.trim() || undefined,
+          fecha_fin_prevista: anticValido ? prevista : modo.tipo === 'editar' ? null : undefined,
+          motivo_fin: anticValido ? (motivo === 'OTRO' ? otro.trim() || 'OTRO' : motivo) || undefined : undefined,
+        }
+    if (!bloqueado && anticipado && !anticValido) {
       setError(`Si terminó antes de tiempo, el último día trabajado debe ser anterior al ${fmt(prevista)}.`)
       setBusy(false)
       return
@@ -148,17 +154,23 @@ function FormContrato({
           </div>
           <div>
             <label className={labelCls}>Inicio *</label>
-            <input type="date" className="input-field" value={f.inicio} onChange={(e) => setF({ ...f, inicio: e.target.value })} required />
+            <input type="date" className="input-field disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500" value={f.inicio} onChange={(e) => setF({ ...f, inicio: e.target.value })} required disabled={bloqueado} />
           </div>
           <div>
             <label className={labelCls}>{anticipado ? 'Último día trabajado' : 'Fin'}</label>
             <input
-              type="date" className="input-field" value={fin} required
+              type="date" className="input-field disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500" value={fin} required disabled={bloqueado}
               onChange={(e) => { setF({ ...f, fin: e.target.value }); setFinManual(true) }}
             />
           </div>
         </div>
-        {modo.tipo !== 'renovar' && (
+        {bloqueado && (
+          <p className="rounded-xl bg-slate-50 px-3 py-2.5 text-xs text-slate-600">
+            El vendedor está retirado: las fechas y el motivo de salida de este contrato dependen de la baja.
+            {user?.rol === 'admin' ? ' Para cambiarlos usa «Corregir baja».' : ' Solo el administrador puede corregirlos con «Corregir baja».'}
+          </p>
+        )}
+        {modo.tipo !== 'renovar' && !bloqueado && (
           <div className="rounded-xl border border-slate-200 px-3 py-2.5">
             <label className="flex cursor-pointer items-start gap-2 text-sm text-slate-700">
               <input
@@ -697,7 +709,7 @@ export default function DetalleVendedor({
                 <Plus size={14} /> Reingreso
               </button>
             )}
-            {puede('vendedores.baja') && !det.vigente && (
+            {user?.rol === 'admin' && !det.vigente && (
               <button onClick={() => setCorregirBaja(true)} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-800">
                 <Pencil size={14} /> Corregir baja
               </button>
