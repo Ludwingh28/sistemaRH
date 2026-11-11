@@ -361,8 +361,9 @@ def corregir_baja(
     anterior, motivo_anterior = v.fecha_baja, v.motivo_baja
     ultimo = v.contrato_actual
     if ultimo and ultimo.fecha_fin_prevista:
-        # marcado «terminó antes de tiempo»: su fin es el último día trabajado y el motivo es el de la baja
-        ultimo.fecha_fin = max(ultimo.fecha_inicio, data.fecha_baja - timedelta(days=1))
+        # marcado «terminó antes de tiempo»: su fin es la fecha de la baja y el motivo es el de la baja
+        # (la asistencia ya cuenta hasta el día anterior a la baja)
+        ultimo.fecha_fin = max(ultimo.fecha_inicio, data.fecha_baja)
         if ultimo.fecha_fin >= ultimo.fecha_fin_prevista:
             ultimo.fecha_fin_prevista = None  # ya no termina antes de lo previsto
             ultimo.motivo_fin = None
